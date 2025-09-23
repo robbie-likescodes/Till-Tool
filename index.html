@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Receipt Autofill</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; padding: 16px; }
+    .row { display:flex; gap:12px; margin:8px 0; align-items:center; }
+    label { width: 160px; }
+    input[type="number"] { width: 140px; }
+    #status { margin: 8px 0; opacity: .8; }
+    #preview { max-width: 100%; display:none; margin: 8px 0; }
+    .dim { opacity:.6 }
+  </style>
+</head>
+<body>
+  <h1>Receipt Autofill</h1>
+
+  <div class="row">
+    <input id="file" type="file" accept="image/*" capture="environment">
+    <button id="btnScan">Scan</button>
+    <span id="status" class="dim">Select a photo and hit Scan</span>
+  </div>
+
+  <img id="preview" alt="preview">
+
+  <div class="row"><label for="tips">Tips</label>
+    <input id="tips" type="number" step="0.01" inputmode="decimal" />
+  </div>
+  <div class="row"><label for="totalCollected">Total Collected</label>
+    <input id="totalCollected" type="number" step="0.01" inputmode="decimal" />
+  </div>
+  <div class="row"><label for="tax">Sales Tax</label>
+    <input id="tax" type="number" step="0.01" inputmode="decimal" />
+  </div>
+  <div class="row"><label for="subtotal">Subtotal</label>
+    <input id="subtotal" type="number" step="0.01" inputmode="decimal" />
+  </div>
+
+  <pre id="debug" class="dim" style="white-space:pre-wrap"></pre>
+
+  <!-- Tesseract.js (CDN) -->
+  <script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
+  <script>
+    const el = (id) => document.getElementById(id);
+    const fileInput = el('file');
+    const btnScan   = el('btnScan');
+    const statusEl  = el('status');
+    const preview   = el('preview');
+    const debug     = el('debug');
+
+    // Simple client-side resize to keep OCR fast (~1600px long side)
+    async function fileToResizedDataURL(file, maxSide = 1600) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const url = URL.createObjectURL(file);
+      await new Promise(r => { img.onload = r; img.src = url; });
+
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      URL.revokeObjectURL(url);
+      return dataUrl;
+    }
+
+    function parseAmountsByKeywords(text) {
+      // Normalize lines
+      const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+
+      // Helpers
+      const moneyRegex = /(?<!\d)(\$?\s*\d{1,3}(?:[,\d]{0,3})*(?:\.\d{2})?)(?!\d)/g;
+      const normMoney  = s => parseFloat(s.replace(/[^\d.]/g, '')) || null;
+      const hasWord = (s, arr) => arr.some(w => s.toLowerCase().includes(w));
+
+      // Keyword variants (add your brand’s vocabulary here)
+      const K = {
+        tips: ['tip', 'tips', 'gratuity', 'gratuities'],
+        totalCollected: ['total collected', 'total due', 'amount due', 'grand total', 'total'],
+        tax: ['tax', 'sales tax', 'gst', 'vat'],
+        subtotal: ['subtotal', 'sub total', 'net total', 'items total']
+      };
+
+      // Grab the nearest amount on the same line or the next line
+      function findAmountNear(words) {
+        for (let i = 0; i < lines.length; i++) {
+          const L = lines[i];
+          if (hasWord(L, words)) {
+            // Same line first
+            const same = [...L.matchAll(moneyRegex)].map(m => normMoney(m[0])).filter(Boolean);
+            if (same.length) return same[same.length - 1]; // prefer the last on the line
+            // Next line fallback
+            if (i + 1 < lines.length) {
+              const next = [...lines[i+1].matchAll(moneyRegex)].map(m => normMoney(m[0])).filter(Boolean);
+              if (next.length) return next[next.length - 1];
+            }
+          }
+        }
+        return null;
+      }
+
+      // Also compute a global best-guess total if labeled keywords fail
+      function guessLargestAmount() {
+        const nums = [];
+        for (const L of lines) {
+          const found = [...L.matchAll(moneyRegex)].map(m => normMoney(m[0])).filter(Boolean);
+          nums.push(...found);
+        }
+        return nums.length ? Math.max(...nums) : null;
+      }
+
+      const out = {
+        tips:           findAmountNear(K.tips),
+        totalCollected: findAmountNear(K.totalCollected),
+        tax:            findAmountNear(K.tax),
+        subtotal:       findAmountNear(K.subtotal)
+      };
+
+      // Heuristics
+      if (!out.totalCollected) out.totalCollected = guessLargestAmount();
+      // If subtotal missing but we have total and tax, infer subtotal = total - tax (ignore tip)
+      if (out.totalCollected != null && out.tax != null && out.subtotal == null) {
+        const s = +(out.totalCollected - out.tax).toFixed(2);
+        if (s > 0) out.subtotal = s;
+      }
+
+      return out;
+    }
+
+    fileInput.addEventListener('change', async () => {
+      if (fileInput.files?.[0]) {
+        preview.src = URL.createObjectURL(fileInput.files[0]);
+        preview.style.display = 'block';
+      }
+    });
+
+    btnScan.addEventListener('click', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return alert('Choose a receipt photo first.');
+      statusEl.textContent = 'Processing… (OCR)';
+
+      const dataUrl = await fileToResizedDataURL(file);
+      const { data } = await Tesseract.recognize(dataUrl, 'eng', {
+        logger: m => (statusEl.textContent = m.status + (m.progress ? ` ${Math.round(m.progress*100)}%` : ''))
+      });
+
+      statusEl.textContent = 'Parsing…';
+      const parsed = parseAmountsByKeywords(data.text || '');
+      debug.textContent = `RAW TEXT:\n\n${(data.text || '').slice(0,5000)}`;
+
+      // Autofill the form
+      const fill = (id, v) => { if (v != null) document.getElementById(id).value = v.toFixed(2); };
+      fill('tips', parsed.tips);
+      fill('totalCollected', parsed.totalCollected);
+      fill('tax', parsed.tax);
+      fill('subtotal', parsed.subtotal);
+
+      statusEl.textContent = 'Done. Review and adjust if needed.';
+    });
+  </script>
+</body>
+</html>
