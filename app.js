@@ -237,7 +237,9 @@ $('scanSales').addEventListener('click', async ()=>{
   const mirrorVals = {}; RECEIPT_FIELDS.forEach(({key})=> mirrorVals[key] = p[key] ?? null);
   renderReceiptMirror(mirrorVals);
 
-  $('salesDetails')?.open &&= false;
+const sd = document.getElementById('salesDetails');
+if (sd) sd.open = false;
+  
   setText('salesChip','scanned','badge');
   recalcAll();
 });
@@ -293,7 +295,8 @@ $('scanDrawer').addEventListener('click', async ()=>{
   if(d.paid_in_out!=null) setNum('am_paid_in_out', d.paid_in_out);
   // Mirror (hidden unless opened)
   renderDrawerMirror(d);
-  $('drawerDetails')?.open &&= false;
+ const dd = document.getElementById('drawerDetails');
+if (dd) dd.open = false;
   setText('drawerChip','scanned','badge');
   recalcAll();
 });
