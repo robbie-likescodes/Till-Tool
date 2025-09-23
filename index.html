@@ -4,28 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Daily Close — Barista Web App</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%237C3AED'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="wrap">
     <h1>Daily Close</h1>
-    <div class="sub">Scan receipts → (optional) review → add manual amounts → submit. Computed fields are locked.</div>
+    <div class="sub">Pick shift → scan receipts → (optional) review → add denominations → submit.</div>
 
-    <!-- Identity -->
+    <!-- SHIFT HEADER -->
     <div class="card grid grid-2-md">
       <div>
-        <label>First name</label>
-        <div class="field"><input id="firstName" type="text" autocomplete="given-name" placeholder="e.g., Ava"></div>
-      </div>
-      <div>
-        <label>Last name</label>
-        <div class="field"><input id="lastName" type="text" autocomplete="family-name" placeholder="e.g., Lee"></div>
-      </div>
-      <div>
-        <label>Store Location</label>
+        <label>Store</label>
         <div class="field"><input id="store" type="text" placeholder="Stand / Location"></div>
-        <div class="hint">We remember these on this phone.</div>
+        <div class="hint">Remembered on this device.</div>
       </div>
       <div class="grid grid-2">
         <div>
@@ -37,205 +28,206 @@
           <div class="field"><input id="time" type="time" step="60"></div>
         </div>
       </div>
+      <div>
+        <label>Shift</label>
+        <div class="row">
+          <label class="chip"><input type="radio" name="shift" id="shiftAM" checked> AM</label>
+          <label class="chip"><input type="radio" name="shift" id="shiftPM"> PM</label>
+        </div>
+        <div class="hint">Auto-picks by time; you can override.</div>
+      </div>
     </div>
 
-    <!-- SALES REPORT (Merged with hidden Mirror) -->
-    <div class="card">
-      <div class="sect-title">
-        <h2>Sales Report</h2>
-        <span id="salesChip" class="badge">waiting</span>
-      </div>
-      <div class="row">
-        <input id="fileSales" type="file" accept="image/*" capture="environment" />
-        <button id="scanSales" class="btn btn-grad tiny" type="button">Scan Sales Report</button>
-        <span id="statusSales" class="pill">Idle</span>
-      </div>
-
-      <!-- Keep only key fields visible for fast corrections -->
-      <div class="grid grid-2-md mt-12">
-        <div>
-          <label>Total Collected</label>
-          <div class="field"><input id="am_total_collected" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-        <div>
-          <label>Tips</label>
-          <div class="field"><input id="am_tips" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-        <div>
-          <label>Gift Cards Sales</label>
-          <div class="field"><input id="am_gift_card_sales" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-        <div>
-          <label>Card</label>
-          <div class="field"><input id="am_card_collected" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-        <div>
-          <label>Cash Sales</label>
-          <div class="field"><input id="am_cash_sales" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-      </div>
-
-      <!-- Collapsible Receipt Mirror (hidden by default) -->
-      <details id="salesDetails" class="mt-12">
-        <summary class="pill">Review scanned details (optional)</summary>
-        <div id="receiptMirror" class="grid grid-2-md mt-12"></div>
-      </details>
-    </div>
-
-    <!-- DRAWER REPORT (Merged with hidden Mirror) -->
-    <div class="card">
-      <div class="sect-title">
-        <h2>Drawer Report</h2>
-        <span id="drawerChip" class="badge">waiting</span>
-      </div>
-      <div class="row">
-        <input id="fileDrawer" type="file" accept="image/*" capture="environment" />
-        <button id="scanDrawer" class="btn btn-grad tiny" type="button">Scan Drawer Report</button>
-        <span id="statusDrawer" class="pill">Idle</span>
-      </div>
-
-      <!-- Manual fields that tie into AM math -->
-      <div class="grid grid-2-md mt-12">
-        <div>
-          <label>Starting Cash</label>
-          <div class="field"><input id="am_starting_cash" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-        <div>
-          <label>Ending Cash (Till Total)</label>
-          <div class="field"><input id="am_ending_cash" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-        <div>
-          <label>Paid In/Out</label>
-          <div class="field"><input id="am_paid_in_out" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-        <div>
-          <label>Expenses</label>
-          <div class="field"><input id="am_expenses" type="number" step="0.01" inputmode="decimal"></div>
-        </div>
-      </div>
-
-      <!-- Collapsible Drawer Mirror -->
-      <details id="drawerDetails" class="mt-12">
-        <summary class="pill">Review scanned drawer details (optional)</summary>
-        <div id="drawerMirror" class="grid grid-2-md mt-12"></div>
-      </details>
-    </div>
-
-    <!-- AM Section -->
-    <section id="amSection">
+    <!-- AM MODE -->
+    <section id="amMode">
+      <!-- AM SALES -->
       <div class="card">
-        <div class="sect-title"><h2>AM — Deposit Denominations</h2><span class="badge">manual</span></div>
+        <div class="sect-title">
+          <h2>AM Sales Report</h2>
+          <span id="amSalesChip" class="badge">waiting</span>
+        </div>
+        <div class="row">
+          <input id="fileAmSales" type="file" accept="image/*" capture="environment" />
+          <button id="btnScanAmSales" class="btn btn-grad tiny" type="button">Scan AM Sales</button>
+          <span id="statusAmSales" class="pill">Idle</span>
+        </div>
+
+        <!-- summary = ONLY editable sales values (matches receipt payments area) -->
+        <div class="grid grid-2-md mt-12">
+          <div><label>Total Collected</label><div class="field"><input id="am_total_collected" type="number" step="0.01" inputmode="decimal"></div></div>
+          <div><label>Tips</label><div class="field"><input id="am_tips" type="number" step="0.01" inputmode="decimal"></div></div>
+          <div><label>Card</label><div class="field"><input id="am_card" type="number" step="0.01" inputmode="decimal"></div></div>
+          <div><label>Cash</label><div class="field"><input id="am_cash" type="number" step="0.01" inputmode="decimal"></div></div>
+          <div><label>Gift Card</label><div class="field"><input id="am_gift_card" type="number" step="0.01" inputmode="decimal"></div></div>
+        </div>
+
+        <!-- Full mirror (receipt lines) hidden by default -->
+        <details id="amSalesDetails" class="mt-12">
+          <summary class="pill">Review scanned details (optional)</summary>
+          <div id="amSalesMirror" class="grid grid-2-md mt-12"></div>
+        </details>
+      </div>
+
+      <!-- AM DRAWER -->
+      <div class="card">
+        <div class="sect-title">
+          <h2>AM Drawer Report</h2>
+          <span id="amDrawerChip" class="badge">waiting</span>
+        </div>
+        <div class="row">
+          <input id="fileAmDrawer" type="file" accept="image/*" capture="environment" />
+          <button id="btnScanAmDrawer" class="btn btn-grad tiny" type="button">Scan AM Drawer</button>
+          <span id="statusAmDrawer" class="pill">Idle</span>
+        </div>
+
+        <!-- summary = ONLY drawer values on the receipt -->
+        <div class="grid grid-2-md mt-12">
+          <div><label>Starting Cash</label><div class="field"><input id="am_starting_cash" type="number" step="0.01" inputmode="decimal"></div></div>
+          <div><label>Actual in Drawer (Ending)</label><div class="field"><input id="am_ending_cash" type="number" step="0.01" inputmode="decimal"></div></div>
+          <div><label>Paid In/Out</label><div class="field"><input id="am_paid_in_out" type="number" step="0.01" inputmode="decimal"></div></div>
+          <div><label>Expenses</label><div class="field"><input id="am_expenses" type="number" step="0.01" inputmode="decimal"></div></div>
+        </div>
+
+        <details id="amDrawerDetails" class="mt-12">
+          <summary class="pill">Review scanned drawer details (optional)</summary>
+          <div id="amDrawerMirror" class="grid grid-2-md mt-12"></div>
+        </details>
+      </div>
+
+      <!-- AM DEPOSIT + COMPUTED -->
+      <div class="card">
+        <div class="sect-title"><h2>AM Deposit (manual)</h2></div>
         <div class="grid grid-3-md">
-          <div><label>Coins</label><div class="field"><input id="am_dep_coins" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$1s</label><div class="field"><input id="am_dep_1s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$5s</label><div class="field"><input id="am_dep_5s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$10s</label><div class="field"><input id="am_dep_10s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$20s</label><div class="field"><input id="am_dep_20s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$50s</label><div class="field"><input id="am_dep_50s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$100s</label><div class="field"><input id="am_dep_100s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>Deposit Total (auto)</label><div class="field"><input id="am_cash_deposit_total" type="number" step="0.01" readonly></div></div>
+          <div><label>Coins</label><div class="field"><input id="am_dep_coins" type="number" step="0.01"></div></div>
+          <div><label>$1s</label><div class="field"><input id="am_dep_1s" type="number" step="0.01"></div></div>
+          <div><label>$5s</label><div class="field"><input id="am_dep_5s" type="number" step="0.01"></div></div>
+          <div><label>$10s</label><div class="field"><input id="am_dep_10s" type="number" step="0.01"></div></div>
+          <div><label>$20s</label><div class="field"><input id="am_dep_20s" type="number" step="0.01"></div></div>
+          <div><label>$50s</label><div class="field"><input id="am_dep_50s" type="number" step="0.01"></div></div>
+          <div><label>$100s</label><div class="field"><input id="am_dep_100s" type="number" step="0.01"></div></div>
+          <div><label>Deposit Total (auto)</label><div class="field"><input id="am_cash_deposit_total" type="number" readonly></div></div>
         </div>
       </div>
 
       <div class="card">
-        <div class="sect-title"><h2>AM — Computed</h2><span class="badge">read-only</span></div>
+        <div class="sect-title"><h2>AM Computed</h2><span id="amCalcChip" class="badge">…</span></div>
         <div class="grid grid-3-md">
-          <div><label>AM Shift Total (card + deposit)</label><div class="field"><input id="am_shift_total" type="number" step="0.01" readonly></div></div>
-          <div><label>AM Sales Total (Actual)</label><div class="field"><input id="am_sales_total" type="number" step="0.01" readonly></div></div>
-          <div><label>AM Mishandled Cash</label><div class="field"><input id="am_mishandled_cash" type="number" step="0.01" readonly></div></div>
+          <div><label>AM Shift Total (Card + Deposit)</label><div class="field"><input id="am_shift_total" type="number" readonly></div></div>
+          <div><label>AM Sales Total (Actual)</label><div class="field"><input id="am_sales_total" type="number" readonly></div></div>
+          <div><label>AM Mishandled Cash</label><div class="field"><input id="am_mishandled_cash" type="number" readonly></div></div>
         </div>
-        <div class="row mt-8"><span id="amCheck" class="pill">No calc yet</span></div>
       </div>
     </section>
 
-    <!-- PM Section (auto show after 3pm) -->
-    <section id="pmSection" style="display:none">
+    <!-- PM MODE -->
+    <section id="pmMode" style="display:none">
+      <!-- PM SALES -->
       <div class="card">
-        <div class="sect-title"><h2>PM — Sales (All-Day − AM)</h2><span class="badge">OCR or diff</span></div>
+        <div class="sect-title">
+          <h2>PM Sales Reports</h2>
+          <span id="pmSalesChip" class="badge">waiting</span>
+        </div>
 
-        <!-- PM auto-diff from two Sales Reports -->
-        <details class="mt-12">
-          <summary class="pill">Derive PM from two receipts (optional)</summary>
-          <div class="grid grid-2-md mt-12">
-            <div>
-              <label>Scan AM Sales Report</label>
-              <div class="row">
-                <input id="filePmAM" type="file" accept="image/*" capture="environment" />
-                <button id="scanPmAM" class="btn btn-grad tiny" type="button">Scan AM</button>
-                <span id="statusPmAM" class="pill">Idle</span>
-              </div>
-            </div>
-            <div>
-              <label>Scan All-Day Sales Report</label>
-              <div class="row">
-                <input id="filePmAllDay" type="file" accept="image/*" capture="environment" />
-                <button id="scanPmAllDay" class="btn btn-grad tiny" type="button">Scan All-Day</button>
-                <span id="statusPmAllDay" class="pill">Idle</span>
-              </div>
+        <div class="grid grid-2-md">
+          <div>
+            <label>Scan AM Sales (from earlier shift)</label>
+            <div class="row">
+              <input id="filePmAmSales" type="file" accept="image/*" capture="environment" />
+              <button id="btnScanPmAmSales" class="btn btn-grad tiny" type="button">Scan AM Sales</button>
+              <span id="statusPmAm" class="pill">Idle</span>
             </div>
           </div>
-          <div class="hint mt-8">We’ll compute PM = (All-Day − AM) for Total Collected, Tips, Gift Cards, Card, Cash.</div>
+          <div>
+            <label>Scan PM Sales (your shift)</label>
+            <div class="row">
+              <input id="filePmSales" type="file" accept="image/*" capture="environment" />
+              <button id="btnScanPmSales" class="btn btn-grad tiny" type="button">Scan PM Sales</button>
+              <span id="statusPmSales" class="pill">Idle</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- PM summary = ONLY the 5 payment/tips values on the receipt -->
+        <div class="grid grid-2-md mt-12">
+          <div><label>PM Total Collected</label><div class="field"><input id="pm_total_collected" type="number" step="0.01"></div></div>
+          <div><label>PM Tips</label><div class="field"><input id="pm_tips" type="number" step="0.01"></div></div>
+          <div><label>PM Card</label><div class="field"><input id="pm_card" type="number" step="0.01"></div></div>
+          <div><label>PM Cash</label><div class="field"><input id="pm_cash" type="number" step="0.01"></div></div>
+          <div><label>PM Gift Card</label><div class="field"><input id="pm_gift_card" type="number" step="0.01"></div></div>
+        </div>
+
+        <details id="pmAmMirrorDetails" class="mt-12">
+          <summary class="pill">Review scanned AM details (optional)</summary>
+          <div id="pmAmSalesMirror" class="grid grid-2-md mt-12"></div>
         </details>
+        <details id="pmSalesDetails" class="mt-12">
+          <summary class="pill">Review scanned PM details (optional)</summary>
+          <div id="pmSalesMirror" class="grid grid-2-md mt-12"></div>
+        </details>
+      </div>
+
+      <!-- PM DRAWER / DEPOSIT / COMPUTED (same structure as AM) -->
+      <div class="card">
+        <div class="sect-title">
+          <h2>PM Drawer Report</h2>
+          <span id="pmDrawerChip" class="badge">waiting</span>
+        </div>
+        <div class="row">
+          <input id="filePmDrawer" type="file" accept="image/*" capture="environment" />
+          <button id="btnScanPmDrawer" class="btn btn-grad tiny" type="button">Scan PM Drawer</button>
+          <span id="statusPmDrawer" class="pill">Idle</span>
+        </div>
 
         <div class="grid grid-2-md mt-12">
-          <div><label>PM Total Collected</label><div class="field"><input id="pm_total_collected" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>PM Gift Card Sales</label><div class="field"><input id="pm_gift_card_sales" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>PM Card</label><div class="field"><input id="pm_card_collected" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>PM Cash Sales</label><div class="field"><input id="pm_cash_sales" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>PM Tips</label><div class="field"><input id="pm_tips" type="number" step="0.01" inputmode="decimal"></div></div>
+          <div><label>PM Starting Cash</label><div class="field"><input id="pm_starting_cash" type="number" step="0.01"></div></div>
+          <div><label>PM Actual in Drawer (Ending)</label><div class="field"><input id="pm_ending_cash" type="number" step="0.01"></div></div>
+          <div><label>PM Paid In/Out</label><div class="field"><input id="pm_paid_in_out" type="number" step="0.01"></div></div>
+          <div><label>PM Expenses</label><div class="field"><input id="pm_expenses" type="number" step="0.01"></div></div>
         </div>
+
+        <details id="pmDrawerDetails" class="mt-12">
+          <summary class="pill">Review scanned PM drawer (optional)</summary>
+          <div id="pmDrawerMirror" class="grid grid-2-md mt-12"></div>
+        </details>
       </div>
 
       <div class="card">
-        <div class="sect-title"><h2>PM — Drawer &amp; Expenses</h2><span class="badge">OCR/manual</span></div>
-        <div class="grid grid-2-md">
-          <div><label>PM Starting Cash</label><div class="field"><input id="pm_starting_cash" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>PM Ending Cash</label><div class="field"><input id="pm_ending_cash" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>PM Paid In/Out</label><div class="field"><input id="pm_paid_in_out" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>PM Expenses</label><div class="field"><input id="pm_expenses" type="number" step="0.01" inputmode="decimal"></div></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="sect-title"><h2>PM — Deposit Denominations</h2><span class="badge">manual</span></div>
+        <div class="sect-title"><h2>PM Deposit (manual)</h2></div>
         <div class="grid grid-3-md">
-          <div><label>Coins</label><div class="field"><input id="pm_dep_coins" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$1s</label><div class="field"><input id="pm_dep_1s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$5s</label><div class="field"><input id="pm_dep_5s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$10s</label><div class="field"><input id="pm_dep_10s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$20s</label><div class="field"><input id="pm_dep_20s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$50s</label><div class="field"><input id="pm_dep_50s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>$100s</label><div class="field"><input id="pm_dep_100s" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>Deposit Total (auto)</label><div class="field"><input id="pm_cash_deposit_total" type="number" step="0.01" readonly></div></div>
+          <div><label>Coins</label><div class="field"><input id="pm_dep_coins" type="number" step="0.01"></div></div>
+          <div><label>$1s</label><div class="field"><input id="pm_dep_1s" type="number" step="0.01"></div></div>
+          <div><label>$5s</label><div class="field"><input id="pm_dep_5s" type="number" step="0.01"></div></div>
+          <div><label>$10s</label><div class="field"><input id="pm_dep_10s" type="number" step="0.01"></div></div>
+          <div><label>$20s</label><div class="field"><input id="pm_dep_20s" type="number" step="0.01"></div></div>
+          <div><label>$50s</label><div class="field"><input id="pm_dep_50s" type="number" step="0.01"></div></div>
+          <div><label>$100s</label><div class="field"><input id="pm_dep_100s" type="number" step="0.01"></div></div>
+          <div><label>Deposit Total (auto)</label><div class="field"><input id="pm_cash_deposit_total" type="number" readonly></div></div>
         </div>
       </div>
 
       <div class="card">
-        <div class="sect-title"><h2>PM — Computed</h2><span class="badge">read-only</span></div>
+        <div class="sect-title"><h2>PM Computed</h2><span id="pmCalcChip" class="badge">…</span></div>
         <div class="grid grid-3-md">
-          <div><label>PM Shift Total (card + deposit)</label><div class="field"><input id="pm_shift_total" type="number" step="0.01" readonly></div></div>
-          <div><label>PM Daily Sales (Actual)</label><div class="field"><input id="pm_sales_total" type="number" step="0.01" readonly></div></div>
-          <div><label>PM Mishandled Cash</label><div class="field"><input id="pm_mishandled_cash" type="number" step="0.01" readonly></div></div>
+          <div><label>PM Shift Total (Card + Deposit)</label><div class="field"><input id="pm_shift_total" type="number" readonly></div></div>
+          <div><label>PM Sales Total (Actual)</label><div class="field"><input id="pm_sales_total" type="number" readonly></div></div>
+          <div><label>PM Mishandled Cash</label><div class="field"><input id="pm_mishandled_cash" type="number" readonly></div></div>
         </div>
-        <div class="row mt-8"><span id="pmCheck" class="pill">No calc yet</span></div>
       </div>
     </section>
   </div>
 
-  <!-- sticky submit bar -->
+  <!-- Sticky submit -->
   <div class="sticky">
     <div class="bar">
       <span id="saveHint" class="muted">Ready</span>
       <div class="row">
         <button id="recalcBtn" class="btn btn-ghost" type="button">Recalculate</button>
-        <button id="submitBtn" class="btn btn-grad" type="button" disabled>Submit to Google Sheet</button>
+        <button id="submitBtn" class="btn btn-grad" type="button" disabled>Submit</button>
       </div>
     </div>
   </div>
 
-  <!-- Libraries -->
   <script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
-  <!-- Your app code -->
   <script src="app.js"></script>
 </body>
 </html>
