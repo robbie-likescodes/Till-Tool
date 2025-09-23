@@ -1,167 +1,477 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Receipt Autofill</title>
-  <style>
-    body { font: 16px system-ui, sans-serif; padding: 16px; }
-    .row { display:flex; gap:12px; margin:8px 0; align-items:center; }
-    label { width: 160px; }
-    input[type="number"] { width: 140px; }
-    #status { margin: 8px 0; opacity: .8; }
-    #preview { max-width: 100%; display:none; margin: 8px 0; }
-    .dim { opacity:.6 }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Daily Close — Barista Web App</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%237C3AED'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#FAFAF9; --ink:#111827; --muted:#6B7280; --line:#E5E7EB; --card:#FFF;
+    --grad-a:#7C3AED; --grad-b:#06B6D4;
+    --ok-bg:#EEF9F2; --ok-bd:#BFE5C8; --ok-tx:#065F46;
+    --warn-bg:#FFF7E6; --warn-bd:#FFE3A3; --warn-tx:#7C4A03;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+  .wrap{max-width:980px;margin:0 auto;padding:16px 16px 96px}
+  h1{font-size:1.35rem;margin:8px 0 10px}
+  h2{font-size:1.05rem;margin:2px 0 10px}
+  .sub{color:var(--muted);margin-bottom:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:12px 0}
+  .grid{display:grid;gap:12px}
+  .grid-2{grid-template-columns:1fr 1fr}
+  .grid-3{grid-template-columns:repeat(3,1fr)}
+  @media(min-width:720px){.grid-2-md{grid-template-columns:1fr 1fr}.grid-3-md{grid-template-columns:repeat(3,1fr)}}
+  label{display:block;font-size:.92rem;margin:0 0 6px}
+  .field{display:flex;align-items:center;border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:#fff}
+  input[type="text"],input[type="number"],input[type="time"],input[type="date"]{border:0;outline:0;flex:1;font-size:1rem}
+  input[readonly]{background:#F7F7F7}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:#fff}
+  .ok{border-color:var(--ok-bd);background:var(--ok-bg);color:var(--ok-tx)}
+  .warn{border-color:var(--warn-bd);background:var(--warn-bg);color:var(--warn-tx)}
+  .muted{color:var(--muted)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+       padding:12px 16px;border-radius:999px;border:0;color:#fff;font-weight:600;cursor:pointer}
+  .btn-grad{background:linear-gradient(90deg,var(--grad-a),var(--grad-b));box-shadow:0 8px 24px rgba(124,58,237,.25)}
+  .btn-ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+  .btn.tiny{font-size:.9rem;padding:8px 12px}
+  .qt{display:flex;gap:6px;align-items:center}
+  .qt button{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:18px}
+  .qt input{width:120px;text-align:right}
+  .hint{font-size:.84rem;color:var(--muted)}
+  .divider{height:1px;background:var(--line);margin:10px 0}
+  .sticky{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.9);backdrop-filter:blur(6px);border-top:1px solid var(--line);padding:10px}
+  .sticky .bar{max-width:980px;margin:0 auto;display:flex;gap:10px;align-items:center;justify-content:space-between}
+  .slider{appearance:none;width:100%;height:6px;border-radius:999px;background:linear-gradient(90deg,var(--grad-a),var(--grad-b));outline:none}
+  .slider::-webkit-slider-thumb{appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:2px solid var(--line);box-shadow:0 4px 10px rgba(0,0,0,.15)}
+  .sect-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .badge{font-size:.78rem;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  #amSection,#pmSection{transition:opacity .2s ease}
+</style>
 </head>
 <body>
-  <h1>Receipt Autofill</h1>
+<div class="wrap">
+  <h1>Daily Close</h1>
+  <div class="sub">Scan receipts → review → auto-calc → submit (computed fields are read-only)</div>
 
-  <div class="row">
-    <input id="file" type="file" accept="image/*" capture="environment">
-    <button id="btnScan">Scan</button>
-    <span id="status" class="dim">Select a photo and hit Scan</span>
+  <!-- Identity -->
+  <div class="card grid grid-2-md">
+    <div>
+      <label>First name</label>
+      <div class="field"><input id="firstName" type="text" autocomplete="given-name" placeholder="e.g., Ava"></div>
+    </div>
+    <div>
+      <label>Last name</label>
+      <div class="field"><input id="lastName" type="text" autocomplete="family-name" placeholder="e.g., Lee"></div>
+    </div>
+    <div>
+      <label>Store Location</label>
+      <div class="field"><input id="store" type="text" placeholder="Stand / Location"></div>
+      <div class="hint">We remember these on this phone.</div>
+    </div>
+    <div class="grid grid-2">
+      <div>
+        <label>Date</label>
+        <div class="field"><input id="date" type="date"></div>
+      </div>
+      <div>
+        <label>Time</label>
+        <div class="field"><input id="time" type="time" step="60"></div>
+      </div>
+    </div>
   </div>
 
-  <img id="preview" alt="preview">
-
-  <div class="row"><label for="tips">Tips</label>
-    <input id="tips" type="number" step="0.01" inputmode="decimal" />
+  <!-- OCR: Sales Report -->
+  <div class="card">
+    <div class="sect-title">
+      <h2>Sales Report</h2>
+      <span id="salesChip" class="badge">waiting</span>
+    </div>
+    <div class="row">
+      <input id="fileSales" type="file" accept="image/*" capture="environment" />
+      <button id="scanSales" class="btn btn-grad tiny" type="button">Scan Sales Report</button>
+      <span id="statusSales" class="pill">Idle</span>
+    </div>
+    <div class="grid grid-2-md" style="margin-top:10px">
+      <div>
+        <label>Total Collected</label>
+        <div class="field qt">
+          <button type="button" data-q="-1" data-for="am_total_collected">−</button>
+          <input id="am_total_collected" type="number" step="0.01" inputmode="decimal" placeholder="0.00">
+          <button type="button" data-q="+1" data-for="am_total_collected">+</button>
+        </div>
+      </div>
+      <div>
+        <label>Tips (printed)</label>
+        <div class="field qt">
+          <button type="button" data-q="-1" data-for="am_tips">−</button>
+          <input id="am_tips" type="number" step="0.01" inputmode="decimal" placeholder="0.00">
+          <button type="button" data-q="+1" data-for="am_tips">+</button>
+        </div>
+      </div>
+      <div>
+        <label>Gift Card Sales</label>
+        <div class="field"><input id="am_gift_card_sales" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+      <div>
+        <label>Card (Credit Card Charges)</label>
+        <div class="field"><input id="am_card_collected" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+      <div>
+        <label>Cash Sales</label>
+        <div class="field"><input id="am_cash_sales" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <span id="mathSales" class="pill">No math yet</span>
+      <button class="btn btn-ghost tiny" id="clearSales" type="button">Clear</button>
+    </div>
   </div>
-  <div class="row"><label for="totalCollected">Total Collected</label>
-    <input id="totalCollected" type="number" step="0.01" inputmode="decimal" />
+
+  <!-- OCR: Drawer Report -->
+  <div class="card">
+    <div class="sect-title">
+      <h2>Drawer Report</h2>
+      <span id="drawerChip" class="badge">waiting</span>
+    </div>
+    <div class="row">
+      <input id="fileDrawer" type="file" accept="image/*" capture="environment" />
+      <button id="scanDrawer" class="btn btn-grad tiny" type="button">Scan Drawer Report</button>
+      <span id="statusDrawer" class="pill">Idle</span>
+    </div>
+    <div class="grid grid-2-md" style="margin-top:10px">
+      <div>
+        <label>Starting Cash</label>
+        <div class="field"><input id="am_starting_cash" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+      <div>
+        <label>Ending Cash (Till Total)</label>
+        <div class="field"><input id="am_ending_cash" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+      <div>
+        <label>Paid In/Out</label>
+        <div class="field"><input id="am_paid_in_out" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+      <div>
+        <label>Expenses</label>
+        <div class="field"><input id="am_expenses" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+    </div>
   </div>
-  <div class="row"><label for="tax">Sales Tax</label>
-    <input id="tax" type="number" step="0.01" inputmode="decimal" />
+
+  <!-- AM Section -->
+  <section id="amSection">
+    <div class="card">
+      <div class="sect-title"><h2>AM — Deposit Denominations</h2><span class="badge">manual</span></div>
+      <div class="grid grid-3-md">
+        <div><label>Coins</label><div class="field"><input id="am_dep_coins" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$1s</label><div class="field"><input id="am_dep_1s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$5s</label><div class="field"><input id="am_dep_5s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$10s</label><div class="field"><input id="am_dep_10s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$20s</label><div class="field"><input id="am_dep_20s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$50s</label><div class="field"><input id="am_dep_50s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$100s</label><div class="field"><input id="am_dep_100s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>Deposit Total (auto)</label><div class="field"><input id="am_cash_deposit_total" type="number" step="0.01" readonly></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="sect-title"><h2>AM — Computed</h2><span class="badge">read-only</span></div>
+      <div class="grid grid-3-md">
+        <div><label>AM Shift Total (card + deposit)</label><div class="field"><input id="am_shift_total" type="number" step="0.01" readonly></div></div>
+        <div><label>AM Sales Total (Actual)</label><div class="field"><input id="am_sales_total" type="number" step="0.01" readonly></div></div>
+        <div><label>AM Mishandled Cash</label><div class="field"><input id="am_mishandled_cash" type="number" step="0.01" readonly></div></div>
+      </div>
+      <div class="row" style="margin-top:8px"><span id="amCheck" class="pill">No calc yet</span></div>
+    </div>
+  </section>
+
+  <!-- PM Section -->
+  <section id="pmSection" style="display:none">
+    <div class="card">
+      <div class="sect-title"><h2>PM — Sales (All-Day − AM)</h2><span class="badge">OCR or diff</span></div>
+      <div class="grid grid-2-md">
+        <div><label>PM Total Collected</label><div class="field"><input id="pm_total_collected" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>PM Gift Card Sales</label><div class="field"><input id="pm_gift_card_sales" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>PM Card (Credit Card Charges)</label><div class="field"><input id="pm_card_collected" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>PM Cash Sales</label><div class="field"><input id="pm_cash_sales" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>PM Tips</label><div class="field"><input id="pm_tips" type="number" step="0.01" inputmode="decimal"></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sect-title"><h2>PM — Drawer & Expenses</h2><span class="badge">OCR/manual</span></div>
+      <div class="grid grid-2-md">
+        <div><label>PM Starting Cash</label><div class="field"><input id="pm_starting_cash" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>PM Ending Cash</label><div class="field"><input id="pm_ending_cash" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>PM Paid In/Out</label><div class="field"><input id="pm_paid_in_out" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>PM Expenses</label><div class="field"><input id="pm_expenses" type="number" step="0.01" inputmode="decimal"></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sect-title"><h2>PM — Deposit Denominations</h2><span class="badge">manual</span></div>
+      <div class="grid grid-3-md">
+        <div><label>Coins</label><div class="field"><input id="pm_dep_coins" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$1s</label><div class="field"><input id="pm_dep_1s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$5s</label><div class="field"><input id="pm_dep_5s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$10s</label><div class="field"><input id="pm_dep_10s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$20s</label><div class="field"><input id="pm_dep_20s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$50s</label><div class="field"><input id="pm_dep_50s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>$100s</label><div class="field"><input id="pm_dep_100s" type="number" step="0.01" inputmode="decimal"></div></div>
+        <div><label>Deposit Total (auto)</label><div class="field"><input id="pm_cash_deposit_total" type="number" step="0.01" readonly></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sect-title"><h2>PM — Computed</h2><span class="badge">read-only</span></div>
+      <div class="grid grid-3-md">
+        <div><label>PM Shift Total (card + deposit)</label><div class="field"><input id="pm_shift_total" type="number" step="0.01" readonly></div></div>
+        <div><label>PM Daily Sales (Actual)</label><div class="field"><input id="pm_sales_total" type="number" step="0.01" readonly></div></div>
+        <div><label>PM Mishandled Cash</label><div class="field"><input id="pm_mishandled_cash" type="number" step="0.01" readonly></div></div>
+      </div>
+      <div class="row" style="margin-top:8px"><span id="pmCheck" class="pill">No calc yet</span></div>
+    </div>
+  </section>
+
+</div>
+
+<!-- sticky submit bar -->
+<div class="sticky">
+  <div class="bar">
+    <span id="saveHint" class="muted">Ready</span>
+    <div class="row">
+      <button id="recalcBtn" class="btn btn-ghost" type="button">Recalculate</button>
+      <button id="submitBtn" class="btn btn-grad" type="button">Submit to Google Sheet</button>
+    </div>
   </div>
-  <div class="row"><label for="subtotal">Subtotal</label>
-    <input id="subtotal" type="number" step="0.01" inputmode="decimal" />
-  </div>
+</div>
 
-  <pre id="debug" class="dim" style="white-space:pre-wrap"></pre>
+<!-- Tesseract (OCR) -->
+<script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
+<script>
+/* ====== CONFIG ====== */
+const ENDPOINT = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec'; // TODO: paste your Apps Script URL
 
-  <!-- Tesseract.js (CDN) -->
-  <script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
-  <script>
-    const el = (id) => document.getElementById(id);
-    const fileInput = el('file');
-    const btnScan   = el('btnScan');
-    const statusEl  = el('status');
-    const preview   = el('preview');
-    const debug     = el('debug');
+/* ====== HELPERS ====== */
+const $ = id => document.getElementById(id);
+const money = v => { const n = Number(String(v??'').replace(/[^\d.-]/g,'')); return Number.isFinite(n)? +n : null; };
+const setNum = (id,v) => { const el=$(id); if(!el) return; el.readOnly = READONLY.has(id); el.value = (v==null?'':(+v).toFixed(2)); };
+const num = id => money($(id)?.value);
+const READONLY = new Set(['am_cash_deposit_total','am_shift_total','am_sales_total','am_mishandled_cash','pm_cash_deposit_total','pm_shift_total','pm_sales_total','pm_mishandled_cash']);
 
-    // Simple client-side resize to keep OCR fast (~1600px long side)
-    async function fileToResizedDataURL(file, maxSide = 1600) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      const url = URL.createObjectURL(file);
-      await new Promise(r => { img.onload = r; img.src = url; });
+/* ====== MEMORY + DEFAULTS ====== */
+(function boot(){
+  ['firstName','lastName','store'].forEach(k=>{
+    $(k).value = localStorage.getItem('dd_'+k) || '';
+    $(k).addEventListener('input', ()=>localStorage.setItem('dd_'+k,$(k).value.trim()));
+  });
+  const now = new Date();
+  $('date').value = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  $('time').value = now.toTimeString().slice(0,5);
+  toggleAMPM();
+})();
 
-      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-      const w = Math.round(img.width * scale);
-      const h = Math.round(img.height * scale);
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-      URL.revokeObjectURL(url);
-      return dataUrl;
+/* ====== AM/PM TOGGLE ====== */
+function isPM(t){ const [h,m]=(t||'').split(':').map(Number); return h>15 || (h===15 && (m||0)>=0); }
+function toggleAMPM(){ const pm = isPM($('time').value); $('amSection').style.display = pm?'none':''; $('pmSection').style.display = pm?'':'none'; }
+$('time').addEventListener('input', toggleAMPM);
+
+/* ====== OCR PARSERS ====== */
+function parseMoneyFromLines(lines, keys){
+  const re = /(?<!\d)(-?\$?\s*\d{1,3}(?:[, \d]{0,3})*(?:\.\d{2})?)(?!\d)/g;
+  const toN = s => { const n = Number(String(s||'').replace(/[^\d.-]/g,'')); return Number.isFinite(n)?+n:null; };
+  const has = (s,arr)=>arr.some(w=>s.toLowerCase().includes(w));
+  for(let i=0;i<lines.length;i++){
+    if(has(lines[i], keys)){
+      const same = [...lines[i].matchAll(re)].map(m=>toN(m[0])).filter(v=>v!=null);
+      if(same.length) return same.at(-1);
+      const next = lines[i+1]? [...lines[i+1].matchAll(re)].map(m=>toN(m[0])).filter(v=>v!=null) : [];
+      if(next.length) return next.at(-1);
     }
+  }
+  return null;
+}
+async function ocr(file, statusEl){
+  statusEl.textContent = 'OCR…';
+  const url = URL.createObjectURL(file);
+  const { data } = await Tesseract.recognize(url, 'eng', { logger:m=>statusEl.textContent = m.status || 'OCR…' });
+  URL.revokeObjectURL(url);
+  return (data.text||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+}
+// Sales Report parser
+function parseSales(lines){
+  const get = k => parseMoneyFromLines(lines,k);
+  // fallbacks: largest money on page for totals
+  const allNums = lines.flatMap(L=>[...L.matchAll(/(?<!\d)(\$?\s*\d{1,3}(?:[, \d]{0,3})*(?:\.\d{2})?)(?!\d)/g)].map(m=>money(m[0])||0));
+  const largest = allNums.length? Math.max(...allNums) : null;
+  return {
+    total_collected: get(['total collected','grand total','amount due','total']) ?? largest,
+    tips:            get(['tips','gratuity','gratuities']),
+    gift:            get(['gift card sales','gift cards sales','gift card']),
+    card:            get(['card','credit card charges']),
+    cash_sales:      get(['cash sales']),
+    tax:             get(['tax','sales tax']),
+    subtotal:        get(['subtotal','sub total','net sales','items total'])
+  };
+}
+// Drawer Report parser
+function parseDrawer(lines){
+  return {
+    starting_cash:      parseMoneyFromLines(lines, ['starting cash']),
+    ending_cash:        parseMoneyFromLines(lines, ['actual in drawer','ending cash','till total']),
+    paid_in_out:        parseMoneyFromLines(lines, ['paid in/out','paid in','paid out']),
+    expenses:           parseMoneyFromLines(lines, ['expenses'])
+  };
+}
 
-    function parseAmountsByKeywords(text) {
-      // Normalize lines
-      const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+/* ====== WIRE OCR BUTTONS ====== */
+$('scanSales').addEventListener('click', async ()=>{
+  const f = $('fileSales').files?.[0]; if(!f) return alert('Pick a Sales Report photo');
+  const lines = await ocr(f, $('statusSales'));
+  const p = parseSales(lines);
+  setNum('am_total_collected', p.total_collected);
+  setNum('am_tips', p.tips);
+  setNum('am_gift_card_sales', p.gift);
+  setNum('am_card_collected', p.card);
+  setNum('am_cash_sales', p.cash_sales);
+  // UI
+  $('salesChip').textContent = 'scanned';
+  recalcAll();
+});
+$('clearSales').addEventListener('click', ()=>{
+  ['am_total_collected','am_tips','am_gift_card_sales','am_card_collected','am_cash_sales'].forEach(id=>$(id).value='');
+  $('mathSales').className='pill'; $('mathSales').textContent='Cleared';
+});
+$('scanDrawer').addEventListener('click', async ()=>{
+  const f = $('fileDrawer').files?.[0]; if(!f) return alert('Pick a Drawer Report photo');
+  const lines = await ocr(f, $('statusDrawer'));
+  const p = parseDrawer(lines);
+  setNum('am_starting_cash', p.starting_cash);
+  setNum('am_ending_cash', p.ending_cash);
+  setNum('am_paid_in_out', p.paid_in_out);
+  setNum('am_expenses', p.expenses);
+  $('drawerChip').textContent = 'scanned';
+  recalcAll();
+});
 
-      // Helpers
-      const moneyRegex = /(?<!\d)(\$?\s*\d{1,3}(?:[,\d]{0,3})*(?:\.\d{2})?)(?!\d)/g;
-      const normMoney  = s => parseFloat(s.replace(/[^\d.]/g, '')) || null;
-      const hasWord = (s, arr) => arr.some(w => s.toLowerCase().includes(w));
+/* ====== RECALC (read-only computed) ====== */
+function fix2(n){ return Number(Number(n||0).toFixed(2)); }
+function recalcAM(){
+  const dep = fix2((num('am_dep_coins')||0)+(num('am_dep_1s')||0)+(num('am_dep_5s')||0)+(num('am_dep_10s')||0)+(num('am_dep_20s')||0)+(num('am_dep_50s')||0)+(num('am_dep_100s')||0));
+  setNum('am_cash_deposit_total', dep);
+  const shift = fix2((num('am_card_collected')||0) + dep);
+  setNum('am_shift_total', shift);
+  const sales = fix2((num('am_total_collected')||0) - (num('am_tips')||0) - (num('am_gift_card_sales')||0) + (num('am_starting_cash')||0) - (num('am_ending_cash')||0) - (num('am_expenses')||0));
+  setNum('am_sales_total', sales);
+  const mish = fix2((num('am_starting_cash')||0) - shift + (num('am_expenses')||0));
+  setNum('am_mishandled_cash', mish);
+  // sanity chip for sales
+  const ok = (num('am_total_collected')!=null) && Math.abs(((num('am_cash_sales')||0)+(num('am_card_collected')||0)+(num('am_gift_card_sales')||0)+(num('am_tips')||0)) - (num('am_total_collected')||0)) <= 0.02;
+  $('mathSales').className = 'pill ' + (ok?'ok':'warn');
+  $('mathSales').textContent = ok ? 'Math check ✓' : 'Review totals';
+  $('amCheck').className = 'pill ' + ((mish>=0)?'ok':'warn');
+  $('amCheck').textContent = (mish>=0) ? 'AM OK' : 'AM: mishandled negative? review';
+}
+function recalcPM(){
+  const dep = fix2((num('pm_dep_coins')||0)+(num('pm_dep_1s')||0)+(num('pm_dep_5s')||0)+(num('pm_dep_10s')||0)+(num('pm_dep_20s')||0)+(num('pm_dep_50s')||0)+(num('pm_dep_100s')||0));
+  setNum('pm_cash_deposit_total', dep);
+  const shift = fix2((num('pm_card_collected')||0) + dep);
+  setNum('pm_shift_total', shift);
+  const sales = fix2((num('pm_total_collected')||0) - (num('pm_tips')||0) - (num('pm_gift_card_sales')||0) + (num('pm_starting_cash')||0) - (num('pm_ending_cash')||0) - (num('pm_expenses')||0));
+  setNum('pm_sales_total', sales);
+  const mish = fix2((num('pm_starting_cash')||0) - shift + (num('pm_expenses')||0));
+  setNum('pm_mishandled_cash', mish);
+  $('pmCheck').className = 'pill ' + ((mish>=0)?'ok':'warn');
+  $('pmCheck').textContent = (mish>=0) ? 'PM OK' : 'PM: mishandled negative? review';
+}
+function recalcAll(){ recalcAM(); recalcPM(); }
+document.querySelectorAll('input').forEach(el=>{
+  // recalc on any numeric input change
+  if (el.type==='number' || el.type==='date' || el.type==='time') el.addEventListener('input', recalcAll);
+});
+$('recalcBtn').addEventListener('click', recalcAll);
 
-      // Keyword variants (add your brand’s vocabulary here)
-      const K = {
-        tips: ['tip', 'tips', 'gratuity', 'gratuities'],
-        totalCollected: ['total collected', 'total due', 'amount due', 'grand total', 'total'],
-        tax: ['tax', 'sales tax', 'gst', 'vat'],
-        subtotal: ['subtotal', 'sub total', 'net total', 'items total']
-      };
+/* quantity step buttons (+/−) */
+document.querySelectorAll('[data-q]').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const id = btn.dataset.for;
+    const v = num(id) ?? 0;
+    const d = Number(btn.dataset.q);
+    setNum(id, v + d);
+    recalcAll();
+  });
+});
 
-      // Grab the nearest amount on the same line or the next line
-      function findAmountNear(words) {
-        for (let i = 0; i < lines.length; i++) {
-          const L = lines[i];
-          if (hasWord(L, words)) {
-            // Same line first
-            const same = [...L.matchAll(moneyRegex)].map(m => normMoney(m[0])).filter(Boolean);
-            if (same.length) return same[same.length - 1]; // prefer the last on the line
-            // Next line fallback
-            if (i + 1 < lines.length) {
-              const next = [...lines[i+1].matchAll(moneyRegex)].map(m => normMoney(m[0])).filter(Boolean);
-              if (next.length) return next[next.length - 1];
-            }
-          }
-        }
-        return null;
-      }
+/* ====== SUBMIT ====== */
+$('submitBtn').addEventListener('click', async ()=>{
+  const payload = {
+    source: 'Web App',
+    submission_id: (crypto.randomUUID ? crypto.randomUUID() : 'web-'+Date.now()),
+    store_location: $('store').value.trim(),
+    todays_date: $('date').value,
+    time_of_entry: $('time').value,
 
-      // Also compute a global best-guess total if labeled keywords fail
-      function guessLargestAmount() {
-        const nums = [];
-        for (const L of lines) {
-          const found = [...L.matchAll(moneyRegex)].map(m => normMoney(m[0])).filter(Boolean);
-          nums.push(...found);
-        }
-        return nums.length ? Math.max(...nums) : null;
-      }
+    // AM incoming
+    am_total_collected: num('am_total_collected'),
+    am_tips: num('am_tips'),
+    am_gift_card_sales: num('am_gift_card_sales'),
+    am_card_collected: num('am_card_collected'),
+    am_cash_sales: num('am_cash_sales'),
+    am_starting_cash: num('am_starting_cash'),
+    am_ending_cash: num('am_ending_cash'),
+    am_paid_in_out: num('am_paid_in_out'),
+    am_expenses: num('am_expenses'),
+    am_dep_coins: num('am_dep_coins'),
+    am_dep_1s: num('am_dep_1s'),
+    am_dep_5s: num('am_dep_5s'),
+    am_dep_10s: num('am_dep_10s'),
+    am_dep_20s: num('am_dep_20s'),
+    am_dep_50s: num('am_dep_50s'),
+    am_dep_100s: num('am_dep_100s'),
 
-      const out = {
-        tips:           findAmountNear(K.tips),
-        totalCollected: findAmountNear(K.totalCollected),
-        tax:            findAmountNear(K.tax),
-        subtotal:       findAmountNear(K.subtotal)
-      };
+    // AM computed (client copies are informational; server recomputes anyway)
+    am_cash_deposit_total: num('am_cash_deposit_total'),
+    am_shift_total: num('am_shift_total'),
+    am_sales_total: num('am_sales_total'),
+    am_mishandled_cash: num('am_mishandled_cash'),
 
-      // Heuristics
-      if (!out.totalCollected) out.totalCollected = guessLargestAmount();
-      // If subtotal missing but we have total and tax, infer subtotal = total - tax (ignore tip)
-      if (out.totalCollected != null && out.tax != null && out.subtotal == null) {
-        const s = +(out.totalCollected - out.tax).toFixed(2);
-        if (s > 0) out.subtotal = s;
-      }
+    // PM incoming
+    pm_total_collected: num('pm_total_collected'),
+    pm_gift_card_sales: num('pm_gift_card_sales'),
+    pm_card_collected: num('pm_card_collected'),
+    pm_cash_sales: num('pm_cash_sales'),
+    pm_tips: num('pm_tips'),
+    pm_starting_cash: num('pm_starting_cash'),
+    pm_ending_cash: num('pm_ending_cash'),
+    pm_paid_in_out: num('pm_paid_in_out'),
+    pm_expenses: num('pm_expenses'),
+    pm_dep_coins: num('pm_dep_coins'),
+    pm_dep_1s: num('pm_dep_1s'),
+    pm_dep_5s: num('pm_dep_5s'),
+    pm_dep_10s: num('pm_dep_10s'),
+    pm_dep_20s: num('pm_dep_20s'),
+    pm_dep_50s: num('pm_dep_50s'),
+    pm_dep_100s: num('pm_dep_100s'),
 
-      return out;
-    }
+    // PM computed (server will overwrite)
+    pm_cash_deposit_total: num('pm_cash_deposit_total'),
+    pm_shift_total: num('pm_shift_total'),
+    pm_sales_total: num('pm_sales_total'),
+    pm_mishandled_cash: num('pm_mishandled_cash')
+  };
 
-    fileInput.addEventListener('change', async () => {
-      if (fileInput.files?.[0]) {
-        preview.src = URL.createObjectURL(fileInput.files[0]);
-        preview.style.display = 'block';
-      }
-    });
-
-    btnScan.addEventListener('click', async () => {
-      const file = fileInput.files?.[0];
-      if (!file) return alert('Choose a receipt photo first.');
-      statusEl.textContent = 'Processing… (OCR)';
-
-      const dataUrl = await fileToResizedDataURL(file);
-      const { data } = await Tesseract.recognize(dataUrl, 'eng', {
-        logger: m => (statusEl.textContent = m.status + (m.progress ? ` ${Math.round(m.progress*100)}%` : ''))
-      });
-
-      statusEl.textContent = 'Parsing…';
-      const parsed = parseAmountsByKeywords(data.text || '');
-      debug.textContent = `RAW TEXT:\n\n${(data.text || '').slice(0,5000)}`;
-
-      // Autofill the form
-      const fill = (id, v) => { if (v != null) document.getElementById(id).value = v.toFixed(2); };
-      fill('tips', parsed.tips);
-      fill('totalCollected', parsed.totalCollected);
-      fill('tax', parsed.tax);
-      fill('subtotal', parsed.subtotal);
-
-      statusEl.textContent = 'Done. Review and adjust if needed.';
-    });
-  </script>
+  $('saveHint').textContent = 'Saving…';
+  try{
+    const r = await fetch(ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const js = await r.json();
+    $('saveHint').textContent = js.ok ? 'Saved ✓' : ('Error: ' + (js.error || 'unknown'));
+  }catch(err){
+    $('saveHint').textContent = 'Network error';
+  }
+});
+</script>
 </body>
 </html>
