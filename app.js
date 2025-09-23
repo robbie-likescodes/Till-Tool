@@ -1,5 +1,5 @@
 /* ========================== CONFIG ========================== */
-const ENDPOINT = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec'; // <-- paste your Web App URL
+const ENDPOINT = 'https://script.google.com/macros/s/AKfycbz8fXRp4uuYvEV4qWCtW3XxN5wiEIjtacv7BVhFIMEgRLztTOUfpVlGO-3_F2as5RmXHg/exec'; // <-- paste your Web App URL
 const MATH_EPS = 0.02; // tolerance for sanity checks (~2 cents)
 
 /* ========================== HELPERS ========================== */
