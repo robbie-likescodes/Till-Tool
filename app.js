@@ -1,5 +1,5 @@
 /* ========================== CONFIG ========================== */
-const ENDPOINT = 'https://script.google.com/macros/s/AKfycbz8fXRp4uuYvEV4qWCtW3XxN5wiEIjtacv7BVhFIMEgRLztTOUfpVlGO-3_F2as5RmXHg/exec'; // <-- paste your Web App URL
+const ENDPOINT = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec'; // <-- paste your Web App URL
 const MATH_EPS = 0.02; // tolerance for sanity checks (~2 cents)
 
 /* ========================== HELPERS ========================== */
@@ -29,6 +29,93 @@ const READONLY = new Set([
   'am_cash_deposit_total', 'am_shift_total', 'am_sales_total', 'am_mishandled_cash',
   'pm_cash_deposit_total', 'pm_shift_total', 'pm_sales_total', 'pm_mishandled_cash'
 ]);
+
+/* ========================== RECEIPT MIRROR ========================== */
+/* label: what baristas see (exact like the receipt)
+ * key:   internal key we fill by OCR + allow manual correction
+ * Order matches your Sales Report.
+ */
+const RECEIPT_FIELDS = [
+  // SALES
+  { label: 'Gross Sales',               key: 'gross_sales' },
+  { label: 'Items',                     key: 'items' },
+  { label: 'Service Charges',           key: 'service_charges' },
+  { label: 'Returns',                   key: 'returns' },
+  { label: 'Discounts & Comps',         key: 'discounts_comps' },
+  { label: 'Net Sales',                 key: 'net_sales' },
+  { label: 'Tax',                       key: 'tax' },
+  { label: 'Tips',                      key: 'tips' },
+  { label: 'Gift Cards Sales',          key: 'gift_cards_sales' },
+  { label: 'Refunds by Amount',         key: 'refunds_by_amount' },
+  { label: 'Total',                     key: 'total_sales' },
+
+  // PAYMENTS
+  { label: 'Total Collected',           key: 'total_collected' },
+  { label: 'Cash',                      key: 'cash' },
+  { label: 'Card',                      key: 'card' },            // <- as requested
+  { label: 'Gift Card',                 key: 'gift_card' },
+  { label: 'Fees',                      key: 'fees' },
+  { label: 'Net Total',                 key: 'net_total' },
+
+  // DISCOUNTS APPLIED (examples present on your sample)
+  { label: 'Free Drink Discount',       key: 'free_drink_discount' },
+  { label: 'Paper Money Card Discount', key: 'paper_money_card_discount' },
+  { label: 'Pay the Difference Discount', key: 'pay_difference_discount' },
+
+  // CATEGORY SALES (examples present on your sample)
+  { label: 'Uncategorized',             key: 'cat_uncategorized' },
+  { label: 'Cold',                      key: 'cat_cold' },
+  { label: 'Employee Prices',           key: 'cat_employee_prices' },
+  { label: 'Food',                      key: 'cat_food' },
+  { label: 'Hot Drinks',                key: 'cat_hot_drinks' }
+];
+
+function renderReceiptMirror(values = {}) {
+  const card = $('receiptMirrorCard');
+  const host = $('receiptMirror');
+  if (!card || !host) return; // safe if block not added to HTML yet
+
+  host.innerHTML = '';
+  RECEIPT_FIELDS.forEach(({ label, key }) => {
+    const id = 'rm_' + key;
+    const val = values[key];
+    const html = `
+      <div>
+        <label>${label}</label>
+        <div class="field">
+          <input id="${id}" data-rm-key="${key}" type="number" step="0.01" inputmode="decimal" placeholder="0.00" value="${val != null ? (+val).toFixed(2) : ''}">
+        </div>
+      </div>`;
+    host.insertAdjacentHTML('beforeend', html);
+  });
+
+  // keep AM calc fields in sync when they edit receipt lines
+  host.querySelectorAll('input').forEach(el => {
+    el.addEventListener('input', () => {
+      const k = el.dataset.rmKey;
+      const v = money(el.value);
+      mirrorToAM(k, v);
+      recalcAll();
+    });
+  });
+
+  card.style.display = '';
+}
+
+function mirrorToAM(k, v) {
+  // map a few key receipt values into your AM fields for the rest of the math/UI
+  const map = {
+    total_collected: 'am_total_collected',
+    tips:            'am_tips',
+    gift_cards_sales:'am_gift_card_sales',
+    card:            'am_card_collected',
+    cash:            'am_cash_sales',
+    tax:             null, // add if you decide to track separately
+    total_sales:     null
+  };
+  const id = map[k];
+  if (id) setNum(id, v);
+}
 
 /* ========================== MEMORY & DEFAULTS ========================== */
 (function bootMemoryAndDefaults() {
@@ -89,7 +176,7 @@ function parseMoneyFromLines(lines, keys) {
   return null;
 }
 
-/* ========================== SALES REPORT PARSER ========================== */
+/* ========================== SALES REPORT PARSER (fills all lines) ========================== */
 function parseSales(lines) {
   const get = k => parseMoneyFromLines(lines, k);
   const allNums = lines.flatMap(L =>
@@ -97,14 +184,40 @@ function parseSales(lines) {
       .map(m => money(m[0]) || 0)
   );
   const largest = allNums.length ? Math.max(...allNums) : null;
+
   return {
-    total_collected: get(['total collected', 'grand total', 'amount due', 'total']) ?? largest,
-    tips: get(['tips', 'gratuity', 'gratuities']),
-    gift: get(['gift card sales', 'gift cards sales', 'gift card']),
-    card: get(['credit card charges', 'card']),
-    cash_sales: get(['cash sales']),
-    tax: get(['tax', 'sales tax']),
-    subtotal: get(['subtotal', 'sub total', 'net sales', 'items total'])
+    // SALES
+    gross_sales:        get(['gross sales']),
+    items:              get(['items']),
+    service_charges:    get(['service charges']),
+    returns:            get(['returns']),
+    discounts_comps:    get(['discounts & comps','discounts and comps','discounts']),
+    net_sales:          get(['net sales']),
+    tax:                get(['tax','sales tax']),
+    tips:               get(['tips','gratuity','gratuities']),
+    gift_cards_sales:   get(['gift cards sales','gift card sales','gift card']),
+    refunds_by_amount:  get(['refunds by amount']),
+    total_sales:        get(['total']) ?? largest,
+
+    // PAYMENTS
+    total_collected:    get(['total collected']),
+    cash:               get(['cash ']), // trailing space to avoid "cash sales" mismatch
+    card:               get(['card','credit card charges']),
+    gift_card:          get(['gift card ']),
+    fees:               get(['fees']),
+    net_total:          get(['net total']),
+
+    // DISCOUNTS APPLIED
+    free_drink_discount:        get(['free drink discount']),
+    paper_money_card_discount:  get(['paper money card discount']),
+    pay_difference_discount:    get(['pay the difference discount']),
+
+    // CATEGORY SALES
+    cat_uncategorized:  get(['uncategorized']),
+    cat_cold:           get(['cold']),
+    cat_employee_prices:get(['employee prices']),
+    cat_food:           get(['food']),
+    cat_hot_drinks:     get(['hot drinks'])
   };
 }
 
@@ -124,14 +237,23 @@ $('scanSales').addEventListener('click', async () => {
   if (!f) return alert('Pick a Sales Report photo');
   const lines = await ocr(f, $('statusSales'));
   const p = parseSales(lines);
-  setNum('am_total_collected', p.total_collected);
-  setNum('am_tips', p.tips);
-  setNum('am_gift_card_sales', p.gift);
-  setNum('am_card_collected', p.card);
-  setNum('am_cash_sales', p.cash_sales);
+
+  // sync key AM fields so your existing math works
+  setNum('am_total_collected',   p.total_collected);
+  setNum('am_tips',              p.tips);
+  setNum('am_gift_card_sales',   p.gift_cards_sales);
+  setNum('am_card_collected',    p.card);
+  setNum('am_cash_sales',        p.cash);
+
+  // render the Receipt Mirror in exact order/labels
+  const mirrorVals = {};
+  RECEIPT_FIELDS.forEach(({ key }) => { mirrorVals[key] = p[key] ?? null; });
+  renderReceiptMirror(mirrorVals);
+
   setText('salesChip', 'scanned', 'badge');
   recalcAll();
 });
+
 $('clearSales').addEventListener('click', () => {
   ['am_total_collected', 'am_tips', 'am_gift_card_sales', 'am_card_collected', 'am_cash_sales']
     .forEach(id => $(id).value = '');
@@ -144,9 +266,9 @@ $('scanDrawer').addEventListener('click', async () => {
   const lines = await ocr(f, $('statusDrawer'));
   const p = parseDrawer(lines);
   setNum('am_starting_cash', p.starting_cash);
-  setNum('am_ending_cash', p.ending_cash);
-  setNum('am_paid_in_out', p.paid_in_out);
-  setNum('am_expenses', p.expenses);
+  setNum('am_ending_cash',   p.ending_cash);
+  setNum('am_paid_in_out',   p.paid_in_out);
+  setNum('am_expenses',      p.expenses);
   setText('drawerChip', 'scanned', 'badge');
   recalcAll();
 });
@@ -223,7 +345,7 @@ qsa('input').forEach(el => {
 });
 $('recalcBtn').addEventListener('click', recalcAll);
 
-/* ========================== QUANTITY STEPPERS ========================== */
+/* ========================== QUANTITY STEPPERS (+/−) ========================== */
 qsa('[data-q]').forEach(btn => {
   btn.addEventListener('click', () => {
     const id = btn.dataset.for;
@@ -246,6 +368,30 @@ function validateBeforeSubmit() {
     return false;
   }
   return true;
+}
+
+/* ========================== MERGE RECEIPT MIRROR → PAYLOAD ========================== */
+function collectReceiptMirrorIntoPayload(payload){
+  const host = $('receiptMirror');
+  if (!host) return;
+
+  // read all mirror inputs
+  const vals = {};
+  host.querySelectorAll('[data-rm-key]').forEach(input=>{
+    vals[input.dataset.rmKey] = money(input.value);
+  });
+
+  // Map the important ones into the AM keys your sheet expects.
+  payload.am_total_collected  = vals.total_collected ?? payload.am_total_collected;
+  payload.am_tips             = vals.tips ?? payload.am_tips;
+  payload.am_gift_card_sales  = vals.gift_cards_sales ?? payload.am_gift_card_sales;
+  payload.am_card_collected   = vals.card ?? payload.am_card_collected;
+  payload.am_cash_sales       = vals.cash ?? payload.am_cash_sales;
+
+  // Optional: include extras if you later add corresponding headers/server map
+  payload.am_fees            = vals.fees ?? null;            // if you add an "AM Fees" column
+  payload.am_net_total       = vals.net_total ?? null;       // if you add an "AM Net Total" column
+  payload.am_discounts_total = vals.discounts_comps ?? null; // if you add an "AM Discounts Total" column
 }
 
 /* ========================== PAYLOAD & SUBMIT ========================== */
@@ -311,6 +457,9 @@ $('submitBtn').addEventListener('click', async () => {
     pm_mishandled_cash: getNum('pm_mishandled_cash')
   };
 
+  // Merge Receipt Mirror values (so visible “Card”, “Total Collected”, etc. drive the actual payload)
+  collectReceiptMirrorIntoPayload(payload);
+
   setText('saveHint', 'Saving…', 'muted');
   try {
     const r = await fetch(ENDPOINT, {
@@ -321,7 +470,7 @@ $('submitBtn').addEventListener('click', async () => {
     const js = await r.json();
     setText('saveHint', js.ok ? 'Saved ✓' : ('Error: ' + (js.error || 'unknown')));
     if (js.ok) {
-      // Optional: mild reset keeping identity/date/time
+      // Optional: reset the numeric fields but keep identity/date/time
       // resetFormButKeepIdentity();
     }
   } catch (err) {
@@ -339,4 +488,3 @@ function resetFormButKeepIdentity() {
   });
   recalcAll();
 }
-
