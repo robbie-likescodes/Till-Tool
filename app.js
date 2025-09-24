@@ -1,6 +1,6 @@
 /* ====================== CONFIG ====================== */
 // Replace with your deployed Apps Script Web App URL:
-const ENDPOINT = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
+const ENDPOINT = 'https://script.google.com/macros/s/AKfycbz8fXRp4uuYvEV4qWCtW3XxN5wiEIjtacv7BVhFIMEgRLztTOUfpVlGO-3_F2as5RmXHg/exec';
 const MATH_EPS = 0.02; // tolerance for sanity checks
 
 /* ====================== DOM HELPERS ====================== */
@@ -81,15 +81,13 @@ const RECEIPT_SALES = [
   { label:'Hot Drinks', key:'cat_hot_drinks' }
 ];
 
-// Drawer receipt (exact fields/order)
+// Drawer receipt (exact 5 fields)
 const RECEIPT_DRAWER = [
   { label:'Starting Cash', key:'starting_cash' },
   { label:'Cash Sales', key:'cash_sales' },
   { label:'Cash Refunds', key:'cash_refunds' },
   { label:'Paid In/Out', key:'paid_in_out' },
-  { label:'Expected in Drawer', key:'expected_in_drawer' },
-  { label:'Actual in Drawer', key:'actual_in_drawer' },
-  { label:'Difference', key:'difference' }
+  { label:'Expected in Drawer', key:'expected_in_drawer' }
 ];
 
 /* ====================== MIRRORS ====================== */
@@ -108,12 +106,13 @@ function renderMirror(hostId, spec, values){
   });
 }
 
-/* ====================== OCR PREPROCESS & WORDS ====================== */
-// Upscale → grayscale → threshold for thermal receipts
+/* ====================== OCR PREPROCESS (OpenCV) ====================== */
+// Upscale → median blur → adaptive threshold → sharpen (works great for thermal prints)
 async function preprocessImage(file) {
   const blobURL = URL.createObjectURL(file);
   const img = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = blobURL; i.crossOrigin='anonymous'; });
-  const targetH = 1800; // ~phone-friendly upscale
+
+  const targetH = 2000; // upscale for sharper characters
   const scale = Math.max(1, targetH / img.naturalHeight);
   const w = Math.round(img.naturalWidth * scale);
   const h = Math.round(img.naturalHeight * scale);
@@ -121,41 +120,58 @@ async function preprocessImage(file) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(img, 0, 0, w, h);
-
-  // grayscale + global threshold
-  const id = ctx.getImageData(0, 0, w, h);
-  const d = id.data;
-  let sum = 0;
-  for (let i=0;i<d.length;i+=4){
-    const g = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
-    sum += g;
-  }
-  const mean = sum / (d.length/4);
-  const T = mean * 0.95;
-
-  for (let i=0;i<d.length;i+=4){
-    const g = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
-    const v = g > T ? 255 : 0;
-    d[i]=d[i+1]=d[i+2]=v;
-  }
-  ctx.putImageData(id, 0, 0);
   URL.revokeObjectURL(blobURL);
+
+  // Wait for OpenCV
+  if (!window.cv || !cv.imread) {
+    await new Promise(res => {
+      const tick = () => (window.cv && cv.imread) ? res() : setTimeout(tick, 30);
+      tick();
+    });
+  }
+
+  const src = cv.imread(c);
+  const gray = new cv.Mat(); cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+
+  const blur = new cv.Mat(); cv.medianBlur(gray, blur, 3);
+
+  const bin = new cv.Mat();
+  cv.adaptiveThreshold(
+    blur, bin, 255,
+    cv.ADAPTIVE_THRESH_MEAN_C,
+    cv.THRESH_BINARY,
+    31, 5
+  );
+
+  const sharp = new cv.Mat();
+  const kernel = cv.Mat.ones(3, 3, cv.CV_32F);
+  // simple sharpen kernel
+  kernel.data32F.set([0,-1,0,-1,5,-1,0,-1,0]);
+  cv.filter2D(bin, sharp, cv.CV_8U, kernel);
+
+  cv.imshow(c, sharp);
+
+  // cleanup
+  src.delete(); gray.delete(); blur.delete(); bin.delete(); sharp.delete(); kernel.delete();
+
   return c.toDataURL('image/png');
 }
 
-// OCR that returns WORD boxes after preprocessing
+/* ====================== OCR WORD BOXES ====================== */
 async function ocrWords(file, statusEl) {
   setText(statusEl.id,'OCR…','pill');
   const dataURL = await preprocessImage(file);
   const { data } = await Tesseract.recognize(dataURL, 'eng', {
     logger: m => setText(statusEl.id, m.status || 'OCR…','pill'),
-    tessedit_pageseg_mode: 6
+    tessedit_pageseg_mode: 4,       // single column of text
+    user_defined_dpi: '300',
+    preserve_interword_spaces: '1'
   });
   setText(statusEl.id,'Scanned ✓','pill ok');
   return data.words || []; // [{text, confidence, bbox:{x0,y0,x1,y1}}, ...]
 }
 
-// Group words into rough lines (y-band)
+// words → rough lines for legacy parsing (regex)
 function wordsToLines(words){
   const rows = [];
   words.forEach(w=>{
@@ -164,13 +180,68 @@ function wordsToLines(words){
     if(!row) rows.push(row = { cy, items: [] });
     row.items.push(w);
   });
-  // sort rows top→bottom and words left→right
   return rows
     .sort((a,b)=>a.cy-b.cy)
     .map(r => r.items.sort((x,y)=>x.bbox.x0 - y.bbox.x0).map(i=>i.text).join(' ').replace(/\s{2,}/g,' '));
 }
 
-/* ====================== PARSERS ====================== */
+/* ====================== LINE-AWARE AMOUNT EXTRACTION ====================== */
+function levenshtein(a,b){
+  const dp=Array.from({length:a.length+1},(_,i)=>Array(b.length+1).fill(0));
+  for(let i=0;i<=a.length;i++) dp[i][0]=i;
+  for(let j=0;j<=b.length;j++) dp[0][j]=j;
+  for(let i=1;i<=a.length;i++)
+    for(let j=1;j<=b.length;j++)
+      dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(a[i-1]==b[j-1]?0:1));
+  return dp[a.length][b.length];
+}
+const looksLike = (s, targets) => {
+  const t = String(s||'').toLowerCase().replace(/[^a-z]/g,'');
+  return targets.some(x => levenshtein(t, x) <= 1);
+};
+const moneyToken = s => {
+  const m = String(s||'').match(/-?\$?\s*\d{1,3}(?:[, \d]{0,3})*(?:\.\d{2})?/);
+  return m ? Number(m[0].replace(/[^\d.-]/g,'')) : null;
+};
+
+function wordsToLineBands(words){
+  const rows=[];
+  words.forEach(w=>{
+    const cy=(w.bbox.y0+w.bbox.y1)/2;
+    let r=rows.find(R=>Math.abs(R.cy-cy)<8);
+    if(!r) rows.push(r={cy, items:[]});
+    r.items.push(w);
+  });
+  rows.sort((a,b)=>a.cy-b.cy);
+  rows.forEach(r=>r.items.sort((a,b)=>a.bbox.x0-b.bbox.x0));
+  return rows;
+}
+
+function extractAmountOnLine(words, labels){
+  const rows = wordsToLineBands(words);
+  for(const r of rows){
+    if(r.items.some(w=>looksLike(w.text, labels))){
+      // rightmost money token on the same line
+      for(const w of [...r.items].sort((a,b)=>b.bbox.x1-a.bbox.x1)){
+        const v=moneyToken(w.text);
+        if(v!=null) return Number(v.toFixed(2));
+      }
+    }
+  }
+  // fallback: next line rightmost money
+  for(let i=0;i<rows.length-1;i++){
+    if(rows[i].items.some(w=>looksLike(w.text, labels))){
+      const below=[...rows[i+1].items].sort((a,b)=>b.bbox.x1-a.bbox.x1);
+      for(const w of below){
+        const v=moneyToken(w.text);
+        if(v!=null) return Number(v.toFixed(2));
+      }
+    }
+  }
+  return null;
+}
+
+/* ====================== PARSERS (regex on lines) ====================== */
 function numFromLine(s){
   const m = s.match(/-?\$?\s*\d{1,3}(?:[, \d]{0,3})*(?:\.\d{2})?/g);
   if(!m || !m.length) return null;
@@ -221,13 +292,11 @@ function parseSales(lines){
 
 function parseDrawer(lines){
   return {
-    starting_cash: extract(lines, ['starting cash']),
-    cash_sales: extract(lines, ['cash sales']),
-    cash_refunds: extract(lines, ['cash refunds']),
-    paid_in_out: extract(lines, ['paid in/out','paid in','paid out']),
-    expected_in_drawer: extract(lines, ['expected in drawer']),
-    actual_in_drawer: extract(lines, ['actual in drawer','ending cash','till total']),
-    difference: extract(lines, ['difference'])
+    starting_cash:      extract(lines, ['starting cash']),
+    cash_sales:         extract(lines, ['cash sales']),
+    cash_refunds:       extract(lines, ['cash refunds']),
+    paid_in_out:        extract(lines, ['paid in/out','paid in','paid out']),
+    expected_in_drawer: extract(lines, ['expected in drawer'])
   };
 }
 
@@ -239,6 +308,20 @@ $('btnScanAmSales').addEventListener('click', async ()=>{
   const lines = wordsToLines(words);
   const s = parseSales(lines);
 
+  // Reinforce tricky ones with line-aware extraction
+  const fixes = {
+    tips:  extractAmountOnLine(words, ['tips','tip']),
+    card:  extractAmountOnLine(words, ['card']),
+    cash:  extractAmountOnLine(words, ['cash']),
+    gift:  extractAmountOnLine(words, ['giftcard','giftcards','gift']),
+    total: extractAmountOnLine(words, ['totalcollected','total'])
+  };
+  if(fixes.tips  != null) s.tips = fixes.tips;
+  if(fixes.card  != null) s.card = fixes.card;
+  if(fixes.cash  != null) s.cash = fixes.cash;
+  if(fixes.gift  != null) s.gift_card = fixes.gift;
+  if(fixes.total != null) s.total_collected = fixes.total;
+
   renderMirror('amSalesMirror', RECEIPT_SALES, s);
   setNum('am_total_collected', s.total_collected);
   setNum('am_tips', s.tips);
@@ -247,6 +330,8 @@ $('btnScanAmSales').addEventListener('click', async ()=>{
   setNum('am_gift_card', s.gift_card ?? s.gift_cards_sales);
 
   setText('amSalesChip','scanned','badge');
+  // If any key missing, auto-open details once
+  if ([s.total_collected,s.tips,s.card].some(v=>v==null)) { const d=$('amSalesDetails'); if(d) d.open=true; }
   recalcAll();
 });
 
@@ -257,16 +342,27 @@ $('btnScanAmDrawer').addEventListener('click', async ()=>{
   const lines = wordsToLines(words);
   const d = parseDrawer(lines);
 
+  // line-aware reinforcement
+  const rfix = keyLabels => extractAmountOnLine(words, keyLabels);
+  d.starting_cash      ??= rfix(['startingcash','starting']);
+  d.cash_sales         ??= rfix(['cashsales']);
+  d.cash_refunds       ??= rfix(['cashrefunds','refunds']);
+  d.paid_in_out        ??= rfix(['paidin/out','paidin','paidout','in/out']);
+  d.expected_in_drawer ??= rfix(['expectedindrawer','expected']);
+
   renderMirror('amDrawerMirror', RECEIPT_DRAWER, d);
   setNum('am_starting_cash', d.starting_cash);
-  setNum('am_ending_cash', d.actual_in_drawer);
+  setNum('am_cash_sales_drawer', d.cash_sales);
+  setNum('am_cash_refunds', d.cash_refunds);
   setNum('am_paid_in_out', d.paid_in_out);
+  setNum('am_expected_in_drawer', d.expected_in_drawer);
 
   setText('amDrawerChip','scanned','badge');
+  if ([d.starting_cash,d.expected_in_drawer].some(v=>v==null)) { const de=$('amDrawerDetails'); if(de) de.open=true; }
   recalcAll();
 });
 
-// PM Sales (requires AM-sales scan AND PM-sales scan, or manual entry of the 5 fields)
+// PM Sales (requires AM & PM scans or manual entry)
 let pmAmParsed=null, pmParsed=null;
 
 $('btnScanPmAmSales').addEventListener('click', async ()=>{
@@ -283,6 +379,21 @@ $('btnScanPmSales').addEventListener('click', async ()=>{
   const words = await ocrWords(f, $('statusPmSales'));
   const lines = wordsToLines(words);
   pmParsed = parseSales(lines);
+
+  // reinforce
+  const fixes = {
+    tips:  extractAmountOnLine(words, ['tips','tip']),
+    card:  extractAmountOnLine(words, ['card']),
+    cash:  extractAmountOnLine(words, ['cash']),
+    gift:  extractAmountOnLine(words, ['giftcard','giftcards','gift']),
+    total: extractAmountOnLine(words, ['totalcollected','total'])
+  };
+  if(fixes.tips  != null) pmParsed.tips = fixes.tips;
+  if(fixes.card  != null) pmParsed.card = fixes.card;
+  if(fixes.cash  != null) pmParsed.cash = fixes.cash;
+  if(fixes.gift  != null) pmParsed.gift_card = fixes.gift;
+  if(fixes.total != null) pmParsed.total_collected = fixes.total;
+
   renderMirror('pmSalesMirror', RECEIPT_SALES, pmParsed);
 
   setNum('pm_total_collected', pmParsed.total_collected);
@@ -292,6 +403,7 @@ $('btnScanPmSales').addEventListener('click', async ()=>{
   setNum('pm_gift_card', pmParsed.gift_card ?? pmParsed.gift_cards_sales);
 
   setText('pmSalesChip','PM scanned','badge');
+  if ([pmParsed.total_collected, pmParsed.tips, pmParsed.card].some(v=>v==null)) { const d=$('pmSalesDetails'); if(d) d.open=true; }
   recalcAll();
 });
 
@@ -302,12 +414,23 @@ $('btnScanPmDrawer').addEventListener('click', async ()=>{
   const lines = wordsToLines(words);
   const d = parseDrawer(lines);
 
+  // reinforcement
+  const rfix = keyLabels => extractAmountOnLine(words, keyLabels);
+  d.starting_cash      ??= rfix(['startingcash','starting']);
+  d.cash_sales         ??= rfix(['cashsales']);
+  d.cash_refunds       ??= rfix(['cashrefunds','refunds']);
+  d.paid_in_out        ??= rfix(['paidin/out','paidin','paidout','in/out']);
+  d.expected_in_drawer ??= rfix(['expectedindrawer','expected']);
+
   renderMirror('pmDrawerMirror', RECEIPT_DRAWER, d);
   setNum('pm_starting_cash', d.starting_cash);
-  setNum('pm_ending_cash', d.actual_in_drawer);
+  setNum('pm_cash_sales_drawer', d.cash_sales);
+  setNum('pm_cash_refunds', d.cash_refunds);
   setNum('pm_paid_in_out', d.paid_in_out);
+  setNum('pm_expected_in_drawer', d.expected_in_drawer);
 
   setText('pmDrawerChip','scanned','badge');
+  if ([d.starting_cash,d.expected_in_drawer].some(v=>v==null)) { const de=$('pmDrawerDetails'); if(de) de.open=true; }
   recalcAll();
 });
 
@@ -326,23 +449,26 @@ function depTotal(prefix){
 
 function recalc(prefix){
   const card = getNum(`${prefix}_card`)||0;
-  const dep = depTotal(prefix);
+  const dep  = depTotal(prefix);
   setNum(`${prefix}_cash_deposit_total`, dep);
 
   const shift = fix2(card + dep);
   setNum(`${prefix}_shift_total`, shift);
 
-  // Sales Total = Total Collected − Tips − Gift Card + Starting − Ending − Expenses
+  // Use "Expected in Drawer" as ending cash for equations
+  const starting = getNum(`${prefix}_starting_cash`) || 0;
+  const ending   = getNum(`${prefix}_expected_in_drawer`) || 0;
+  const expenses = getNum(`${prefix}_expenses`) || 0;
+
+  // Sales Total = Total Collected − Tips − Gift Card + Starting − Expected − Expenses
   const sales = (getNum(`${prefix}_total_collected`)||0)
     - (getNum(`${prefix}_tips`)||0)
     - (getNum(`${prefix}_gift_card`)||0)
-    + (getNum(`${prefix}_starting_cash`)||0)
-    - (getNum(`${prefix}_ending_cash`)||0)
-    - (getNum(`${prefix}_expenses`)||0);
+    + starting - ending - expenses;
   setNum(`${prefix}_sales_total`, fix2(sales));
 
   // Mishandled = Starting − Shift + Expenses
-  const mish = (getNum(`${prefix}_starting_cash`)||0) - shift + (getNum(`${prefix}_expenses`)||0);
+  const mish = starting - shift + expenses;
   setNum(`${prefix}_mishandled_cash`, fix2(mish));
 }
 
@@ -387,8 +513,10 @@ $('submitBtn').addEventListener('click', async ()=>{
     am_cash:getNum('am_cash'),
     am_gift_card:getNum('am_gift_card'),
     am_starting_cash:getNum('am_starting_cash'),
-    am_ending_cash:getNum('am_ending_cash'),
+    am_cash_sales_drawer:getNum('am_cash_sales_drawer'),
+    am_cash_refunds:getNum('am_cash_refunds'),
     am_paid_in_out:getNum('am_paid_in_out'),
+    am_expected_in_drawer:getNum('am_expected_in_drawer'),
     am_expenses:getNum('am_expenses'),
     am_dep_coins:getNum('am_dep_coins'),
     am_dep_1s:getNum('am_dep_1s'),
@@ -409,8 +537,10 @@ $('submitBtn').addEventListener('click', async ()=>{
     pm_cash:getNum('pm_cash'),
     pm_gift_card:getNum('pm_gift_card'),
     pm_starting_cash:getNum('pm_starting_cash'),
-    pm_ending_cash:getNum('pm_ending_cash'),
+    pm_cash_sales_drawer:getNum('pm_cash_sales_drawer'),
+    pm_cash_refunds:getNum('pm_cash_refunds'),
     pm_paid_in_out:getNum('pm_paid_in_out'),
+    pm_expected_in_drawer:getNum('pm_expected_in_drawer'),
     pm_expenses:getNum('pm_expenses'),
     pm_dep_coins:getNum('pm_dep_coins'),
     pm_dep_1s:getNum('pm_dep_1s'),
