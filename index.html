@@ -59,7 +59,7 @@
       </div>
     </div>
 
-    <!-- CAMERA TIPS (optional tiny helper) -->
+    <!-- CAMERA TIPS -->
     <div class="tip">
       📸 <strong>Best scan:</strong> flat receipt • no glare • fill the frame • use back camera.
     </div>
@@ -78,7 +78,7 @@
           <span id="statusAmSales" class="pill">Idle</span>
         </div>
 
-        <!-- Summary (editable; just the payment/tips block) -->
+        <!-- Summary (editable payment block) -->
         <div class="grid grid-2-md mt-12">
           <div><label>Total Collected</label><div class="field"><input id="am_total_collected" type="number" step="0.01" inputmode="decimal"></div></div>
           <div><label>Tips</label><div class="field"><input id="am_tips" type="number" step="0.01" inputmode="decimal"></div></div>
@@ -89,12 +89,30 @@
 
         <!-- Full mirror of the receipt (optional review) -->
         <details id="amSalesDetails" class="mt-12">
-          <summary class="pill">Review scanned details (optional)</summary>
+          <summary class="pill">Review full receipt (Sales • Payments • Discounts • Category Sales)</summary>
+
+          <!-- Structured headers for clarity. JS still injects inputs into #amSalesMirror. -->
+          <div class="mt-12">
+            <div class="subtle-hdr">SALES</div>
+          </div>
+          <div class="mt-8">
+            <div class="subtle-hdr">PAYMENTS</div>
+          </div>
+          <div class="mt-8">
+            <div class="subtle-hdr">DISCOUNTS APPLIED</div>
+            <div class="hint">Expected labels on your receipts: <em>Employee Discount</em>, <em>Free Drink Discount</em>, <em>Paper Money Card Discount</em>, <em>Pay the Difference Discount</em>.</div>
+          </div>
+          <div class="mt-8">
+            <div class="subtle-hdr">CATEGORY SALES</div>
+            <div class="hint">Common categories: <em>Cold</em>, <em>Food</em>, <em>Hot Drinks</em> (sometimes <em>Uncategorized</em>).</div>
+          </div>
+
+          <!-- The JS renders all line items here in receipt order -->
           <div id="amSalesMirror" class="grid grid-2-md mt-12"></div>
         </details>
       </div>
 
-      <!-- AM DRAWER (exactly mirrors the receipt’s 5 fields) -->
+      <!-- AM DRAWER -->
       <div class="card">
         <div class="sect-title">
           <h2>AM Drawer Report</h2>
@@ -156,7 +174,6 @@
 
     <!-- PM MODE -->
     <section id="pmMode" style="display:none">
-      <!-- PM SALES (requires AM + PM scans, or manual entry) -->
       <div class="card">
         <div class="sect-title">
           <h2>PM Sales Reports</h2>
@@ -192,16 +209,16 @@
         </div>
 
         <details id="pmAmMirrorDetails" class="mt-12">
-          <summary class="pill">Review scanned AM details (optional)</summary>
+          <summary class="pill">Review AM receipt (Sales • Payments • Discounts • Category Sales)</summary>
           <div id="pmAmSalesMirror" class="grid grid-2-md mt-12"></div>
         </details>
         <details id="pmSalesDetails" class="mt-12">
-          <summary class="pill">Review scanned PM details (optional)</summary>
+          <summary class="pill">Review PM receipt (Sales • Payments • Discounts • Category Sales)</summary>
           <div id="pmSalesMirror" class="grid grid-2-md mt-12"></div>
         </details>
       </div>
 
-      <!-- PM DRAWER (exact 5 fields) -->
+      <!-- PM DRAWER -->
       <div class="card">
         <div class="sect-title">
           <h2>PM Drawer Report</h2>
@@ -273,10 +290,9 @@
     </div>
   </div>
 
-  <!-- OCR libs: OpenCV first (for preprocessing), then Tesseract -->
-  <script async src="https://docs.opencv.org/4.10.0/opencv.js"></script>
+  <!-- OCR library -->
   <script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
-  <!-- Your app code (does preprocessing + OCR + logic) -->
+  <!-- App logic -->
   <script src="app.js"></script>
 </body>
 </html>
