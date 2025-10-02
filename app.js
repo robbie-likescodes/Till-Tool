@@ -188,12 +188,10 @@ function looksLikeHeader(line, target){
 
 /* ---------- Smart section anchors (don’t rely only on headers) ---------- */
 function findSalesStart(lines){
-  // Prefer explicit "SALES" header, but fall back to first sales label
   let i = lines.findIndex(l => looksLikeHeader(l,'SALES'));
   if(i>=0){
-    // Avoid "Sales Report" (header is usually just "SALES")
     const hl = onlyLetters(lines[i]);
-    if(hl !== 'sales') i = -1;
+    if(hl !== 'sales') i = -1; // avoid "Sales Report"
   }
   if(i<0){
     const keys = ['gross sales','net sales','discounts & comps','discounts and comps'];
@@ -201,32 +199,23 @@ function findSalesStart(lines){
   }
   return i>=0? i : 0;
 }
-
 function findPaymentsStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'PAYMENTS'));
   if(i<0){
-    // Fallback to the first typical payment line
     i = lines.findIndex(l => hasAny(l, ['total collected','card ×','card x','gift card','net total']));
   }
   return i;
 }
-
 function findDiscountsStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'DISCOUNTS APPLIED'));
-  if(i<0){
-    i = lines.findIndex(l => /discount/i.test(l));
-  }
+  if(i<0){ i = lines.findIndex(l => /discount/i.test(l)); }
   return i;
 }
-
 function findCategoryStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'CATEGORY SALES'));
-  if(i<0){
-    i = lines.findIndex(l => /\b(cold|hot\s*drinks?|food|uncategorized)\b/i.test(l));
-  }
+  if(i<0){ i = lines.findIndex(l => /\b(cold|hot\s*drinks?|food|uncategorized)\b/i.test(l)); }
   return i;
 }
-
 function sliceSmart(lines){
   const sSales = findSalesStart(lines);
   const sPays  = findPaymentsStart(lines);
@@ -245,51 +234,64 @@ function sliceSmart(lines){
   };
 }
 
-/* ---------- Wrapped-label parsing (discounts) ---------- */
+/* ---------- FUZZY TOKEN HELPERS (new) ---------- */
 const squash = s => s.toLowerCase().replace(/\s+/g,' ').trim();
+function tokens(s){ return squash(s).replace(/[^a-z ]/g,'').split(' ').filter(Boolean); }
+function wordLike(a,b){
+  const d = levenshtein(a,b);
+  if (a.length >= 6) return d <= 2;
+  if (a.length >= 4) return d <= 1;
+  return d === 0;
+}
+function containsAllTokens(hay, req){
+  const H = tokens(hay);
+  return req.every(t => H.some(w => wordLike(t, w)));
+}
 
+/* ---------- Wrapped-label parsing (discounts) — REWRITTEN ---------- */
 function parseDiscountsAnywhere(lines){
   const out = {};
-  const patterns = {
-    employee_discount:         /employee\s+discount/,
-    free_drink_discount:       /free\s+drink\s+discount/,
-    paper_money_card_discount: /paper\s+money\s+card\s+discount/,
-    pay_difference_discount:   /pay\s+the\s+difference\s+discount/
-  };
+  const defs = [
+    { key:'employee_discount',         req:['employee','discount'] },
+    { key:'free_drink_discount',       req:['free','drink','discount'] },
+    { key:'paper_money_card_discount', req:['paper','money','card','discount'] },
+    { key:'pay_difference_discount',   req:['pay','difference','discount'] }
+  ];
 
   for (let i = 0; i < lines.length; i++) {
-    const cur = squash(lines[i]);
+    const cur = lines[i];
 
-    // Single-line
-    for (const [key, rx] of Object.entries(patterns)) {
-      if (rx.test(cur) && out[key] == null) {
-        out[key] = amountNear(lines, i);
-      }
-    }
+    // windows we test: [cur], [cur + next], [prev + cur]
+    const windows = [
+      { idx:i,   text: cur },
+      { idx:i+1, text: i+1<lines.length ? `${cur} ${lines[i+1]}` : cur },
+      { idx:i,   text: i>0 ? `${lines[i-1]} ${cur}` : cur }
+    ];
 
-    // Two-line: current + next
-    if (i + 1 < lines.length) {
-      const join = `${cur} ${squash(lines[i + 1])}`;
-      for (const [key, rx] of Object.entries(patterns)) {
-        if (rx.test(join) && out[key] == null) {
-          out[key] = amountNear(lines, i + 1) ?? amountNear(lines, i);
-        }
-      }
-    }
+    for (const {key, req} of defs) {
+      if (out[key] != null) continue;
 
-    // Two-line: previous + current
-    if (i > 0) {
-      const joinPrev = `${squash(lines[i - 1])} ${cur}`;
-      for (const [key, rx] of Object.entries(patterns)) {
-        if (rx.test(joinPrev) && out[key] == null) {
-          out[key] = amountNear(lines, i) ?? amountNear(lines, i - 1);
-        }
+      // try each window; prefer the line where "discount" is present
+      let matched = null;
+      for (const w of windows) {
+        if (containsAllTokens(w.text, req)) { matched = w; break; }
       }
+      if (!matched) continue;
+
+      // choose index that likely holds the amount (usually the second line with "Discount × n")
+      let amtIdx = i;
+      const nextHasDiscount = i+1<lines.length && /discount/i.test(lines[i+1]);
+      const curHasDiscount  = /discount/i.test(cur);
+      if (nextHasDiscount) amtIdx = i+1;
+      else if (curHasDiscount) amtIdx = i;
+
+      out[key] = amountNear(lines, amtIdx) ?? amountNear(lines, i);
     }
   }
   return out;
 }
 
+/* ---------- Categories (unchanged) ---------- */
 function parseCategoriesAnywhere(lines){
   const out = {};
   const map = {
@@ -358,7 +360,7 @@ function parseSalesText(text){
     refunds_by_amount:  findIn(salesSec, K.refunds, lines),
     total_sales:        findIn(salesSec, K.totalSales, lines),
 
-    // PAYMENTS (prefer section; fall back to lines after sales)
+    // PAYMENTS
     total_collected:    findIn(paySec, K.totalCollected, lines),
     cash:               findIn(paySec, K.cash, lines.slice(findPaymentsStart(lines)>=0?findPaymentsStart(lines):0)),
     card:               findIn(paySec, K.card, lines.slice(findPaymentsStart(lines)>=0?findPaymentsStart(lines):0)),
@@ -374,10 +376,10 @@ function parseSalesText(text){
     if(i>=0) out.card = amountNear(src, i);
   }
 
-  // DISCOUNTS (robust to header & wrapping)
+  // DISCOUNTS (robust to header & wrapping with fuzzy tokens)
   Object.assign(out, parseDiscountsAnywhere(discSec.length ? discSec : lines));
 
-  // CATEGORY SALES (robust to header)
+  // CATEGORY SALES
   Object.assign(out, parseCategoriesAnywhere(catSec.length ? catSec : lines));
 
   return out;
