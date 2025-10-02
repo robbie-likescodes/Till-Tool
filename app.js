@@ -1,4 +1,5 @@
 /* ====================== CONFIG ====================== */
+// Apps Script endpoint
 const ENDPOINT = 'https://script.google.com/macros/s/AKfycbz8fXRp4uuYvEV4qWCtW3XxN5wiEIjtacv7BVhFIMEgRLztTOUfpVlGO-3_F2as5RmXHg/exec';
 const MATH_EPS = 0.02;
 
@@ -46,7 +47,7 @@ function applyShiftUI(){
   applyShiftUI();
 })();
 
-/* ====================== RECEIPT FIELD LISTS ====================== */
+/* ====================== RECEIPT FIELD LISTS (for mirrors) ====================== */
 const RECEIPT_SALES = [
   { label:'Gross Sales', key:'gross_sales' },
   { label:'Items', key:'items' },
@@ -59,15 +60,18 @@ const RECEIPT_SALES = [
   { label:'Gift Cards Sales', key:'gift_cards_sales' },
   { label:'Refunds by Amount', key:'refunds_by_amount' },
   { label:'Total', key:'total_sales' },
+  // Payments
   { label:'Total Collected', key:'total_collected' },
   { label:'Cash', key:'cash' },
   { label:'Card', key:'card' },
   { label:'Gift Card', key:'gift_card' },
   { label:'Fees', key:'fees' },
   { label:'Net Total', key:'net_total' },
+  // Discounts (optional)
   { label:'Free Drink Discount', key:'free_drink_discount' },
   { label:'Paper Money Card Discount', key:'paper_money_card_discount' },
   { label:'Pay the Difference Discount', key:'pay_difference_discount' },
+  // Categories (optional)
   { label:'Uncategorized', key:'cat_uncategorized' },
   { label:'Cold', key:'cat_cold' },
   { label:'Employee Prices', key:'cat_employee_prices' },
@@ -99,268 +103,161 @@ function renderMirror(hostId, spec, values){
   });
 }
 
-/* ====================== OCR PREPROCESS (OpenCV) ====================== */
-// Upscale → deskew → median blur → contrast → adaptive threshold → sharpen
-async function preprocessImage(file) {
-  const blobURL = URL.createObjectURL(file);
-  const img = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = blobURL; i.crossOrigin='anonymous'; });
+/* ====================== SIMPLE IMAGE RESIZE (fast & stable) ====================== */
+async function fileToResizedDataURL(file, maxSide = 1600) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  const url = URL.createObjectURL(file);
+  await new Promise(r => { img.onload = r; img.src = url; });
 
-  const targetH = 2000;
-  const scale = Math.max(1, targetH / img.naturalHeight);
-  const w = Math.round(img.naturalWidth * scale);
-  const h = Math.round(img.naturalHeight * scale);
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently:true });
 
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d', { willReadFrequently: true });
+  // Light contrast lift for faint thermal text
+  ctx.filter = 'contrast(115%) brightness(105%)';
   ctx.drawImage(img, 0, 0, w, h);
-  URL.revokeObjectURL(blobURL);
 
-  // Wait for OpenCV
-  if (!window.cv || !cv.imread) {
-    await new Promise(res => {
-      const tick = () => (window.cv && cv.imread) ? res() : setTimeout(tick, 30);
-      tick();
-    });
-  }
-
-  let src = cv.imread(c);
-  let gray = new cv.Mat(); cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-
-  // --- deskew (small rotations) ---
-  let detect = new cv.Mat();
-  cv.GaussianBlur(gray, detect, new cv.Size(5,5), 0, 0);
-  let th = new cv.Mat();
-  cv.threshold(detect, th, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
-  let edges = new cv.Mat();
-  cv.Canny(th, edges, 50, 150);
-  let lines = new cv.Mat();
-  cv.HoughLines(edges, lines, 1, Math.PI/180, 120);
-
-  let angle = 0;
-  if (lines.rows > 0) {
-    let sum = 0, cnt = 0;
-    for (let i=0;i<lines.rows;i++){
-      const theta = lines.data32F[i*2+1]*180/Math.PI;
-      if ( (theta>2 && theta<20) || (theta>160 && theta<178) ) { // near-vertical
-        sum += (90 - theta);
-        cnt++;
-      }
-    }
-    if (cnt>0) angle = sum/cnt;
-  }
-  if (Math.abs(angle) > 0.5) {
-    const center = new cv.Point(src.cols/2, src.rows/2);
-    const M = cv.getRotationMatrix2D(center, angle, 1);
-    const rotated = new cv.Mat();
-    cv.warpAffine(src, rotated, M, new cv.Size(src.cols, src.rows),
-                 cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255,255,255,255));
-    src.delete(); src = rotated;
-    gray.delete(); gray = new cv.Mat(); cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-  }
-  detect.delete(); th.delete(); edges.delete(); lines.delete();
-
-  // --- denoise + contrast boost ---
-  const blur = new cv.Mat(); cv.medianBlur(gray, blur, 3);
-  cv.convertScaleAbs(blur, blur, 1.5, -20); // alpha=1.5, beta=-20
-
-  // --- adaptive threshold ---
-  const bin = new cv.Mat();
-  cv.adaptiveThreshold(
-    blur, bin, 255,
-    cv.ADAPTIVE_THRESH_MEAN_C,
-    cv.THRESH_BINARY,
-    31, 5
-  );
-
-  // --- sharpen ---
-  const sharp = new cv.Mat();
-  const kernel = cv.Mat.ones(3,3,cv.CV_32F);
-  kernel.data32F.set([0,-1,0,-1,5,-1,0,-1,0]);
-  cv.filter2D(bin, sharp, cv.CV_8U, kernel);
-
-  cv.imshow(c, sharp);
-
-  // cleanup
-  src.delete(); gray.delete(); blur.delete(); bin.delete(); kernel.delete(); sharp.delete();
-
-  return c.toDataURL('image/png');
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+  URL.revokeObjectURL(url);
+  return dataUrl;
 }
 
-/* ====================== OCR WORD BOXES ====================== */
-async function ocrWords(file, statusEl) {
+/* ====================== OCR (TEXT ONLY) ====================== */
+async function ocrText(file, statusEl){
   setText(statusEl.id,'OCR…','pill');
-  const dataURL = await preprocessImage(file);
-  const { data } = await Tesseract.recognize(dataURL, 'eng', {
-    logger: m => setText(statusEl.id, m.status || 'OCR…','pill'),
-    tessedit_pageseg_mode: 4,     // single column
-    user_defined_dpi: '300',
-    preserve_interword_spaces: '1'
+  const dataUrl = await fileToResizedDataURL(file);
+  const { data } = await Tesseract.recognize(dataUrl, 'eng', {
+    logger: m => setText(statusEl.id, (m.status || 'OCR…') + (m.progress?` ${Math.round(m.progress*100)}%`:''), 'pill'),
+    tessedit_pageseg_mode: 4,   // single column works well on these receipts
+    preserve_interword_spaces: '1',
+    user_defined_dpi: '300'
   });
   setText(statusEl.id,'Scanned ✓','pill ok');
-  return data.words || [];
+  return data.text || '';
 }
 
-/* ====================== LINES & LABEL/MONEY HELPERS ====================== */
-function wordsToLines(words){
-  const rows = [];
-  words.forEach(w=>{
-    const cy = (w.bbox.y0 + w.bbox.y1)/2;
-    let row = rows.find(r => Math.abs(r.cy - cy) < 8);
-    if(!row) rows.push(row = { cy, items: [] });
-    row.items.push(w);
-  });
-  return rows
-    .sort((a,b)=>a.cy-b.cy)
-    .map(r => r.items.sort((x,y)=>x.bbox.x0 - y.bbox.x0).map(i=>i.text).join(' ').replace(/\s{2,}/g,' '));
-}
-
-function wordsToLineBands(words){
-  const rows=[];
-  words.forEach(w=>{
-    const cy=(w.bbox.y0+w.bbox.y1)/2;
-    let r=rows.find(R=>Math.abs(R.cy-cy)<8);
-    if(!r) rows.push(r={cy, items:[]});
-    r.items.push(w);
-  });
-  rows.sort((a,b)=>a.cy-b.cy);
-  rows.forEach(r=>r.items.sort((a,b)=>a.bbox.x0-b.bbox.x0));
-  return rows;
-}
-
-function levenshtein(a,b){
-  const dp=Array.from({length:a.length+1},(_,i)=>Array(b.length+1).fill(0));
-  for(let i=0;i<=a.length;i++) dp[i][0]=i;
-  for(let j=0;j<=b.length;j++) dp[0][j]=j;
-  for(let i=1;i<=a.length;i++)
-    for(let j=1;j<=b.length;j++)
-      dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(a[i-1]==b[j-1]?0:1));
-  return dp[a.length][b.length];
-}
-const looksLike = (s, targets) => {
-  const t = String(s||'').toLowerCase().replace(/[^a-z]/g,'');
-  return targets.some(x => levenshtein(t, x) <= 1);
+/* ====================== TEXT → LINES + PARSERS ====================== */
+const moneyRegex = /\(?-?\$?\s*\d{1,3}(?:[,\s]?\d{3})*(?:\.\d{2})?\)?/g;
+const normMoney = s => {
+  if(!s) return null;
+  const raw = s.trim();
+  const parenNeg = raw.startsWith('(') && raw.endsWith(')');
+  const n = Number(raw.replace(/[^\d.-]/g,''));
+  if (!Number.isFinite(n)) return null;
+  return parenNeg ? -Math.abs(n) : n;
 };
+const hasAny = (s, arr) => arr.some(w => s.toLowerCase().includes(w));
 
-// Money with parentheses-negatives support
-const moneyToken = s => {
-  const raw = String(s || '').trim();
-  const isParenNeg = raw.startsWith('(') && raw.endsWith(')');
-  const m = raw.match(/-?\$?\s*\d{1,3}(?:[,\s]?\d{3})*(?:\.\d{2})?/);
-  if (!m) return null;
-  let t = m[0].replace(/[^\d.-]/g,'');
-  let v = Number(t);
-  if (!Number.isFinite(v)) return null;
-  if (isParenNeg) v = -Math.abs(v);
-  return v;
-};
-
-// Estimate right money column for a set of words
-function estimateMoneyColumn(words){
-  const xs = [];
-  for (const w of words){
-    if (/\d/.test(w.text) && moneyToken(w.text)!=null){
-      xs.push(w.bbox.x1);
-    }
-  }
-  if (!xs.length) return null;
-  xs.sort((a,b)=>a-b);
-  return xs[Math.floor(xs.length*0.9)]; // 90th percentile
+function textToLines(text){
+  return text.split(/\r?\n/).map(s=>s.replace(/\s{2,}/g,' ').trim()).filter(Boolean);
 }
 
-// Restrict to a section (e.g., PAYMENTS)
-function bandSliceByAnchor(words, startLabel, endLabel){
-  const rows = wordsToLineBands(words);
-  const start = rows.findIndex(r => r.items.some(w=>looksLike(w.text,[startLabel])));
-  const end   = rows.findIndex(r => r.items.some(w=>looksLike(w.text,[endLabel])));
-  const to = (end>start && end>=0) ? end : rows.length;
-  const from = (start>=0) ? start : 0;
-  const slice = rows.slice(from, to);
-  return slice.flatMap(r => r.items);
-}
-
-// Pick the amount closest to the right column on the same (or next) line
-function extractAmountNearColumn(words, labels, colX){
-  const rows = wordsToLineBands(words);
-  for (let rIdx=0; rIdx<rows.length; rIdx++){
-    const r = rows[rIdx];
-    if (!r.items.some(w => looksLike(w.text, labels))) continue;
-
-    const same = r.items
-      .map(w => ({v: moneyToken(w.text), x: w.bbox.x1}))
-      .filter(o => o.v!=null)
-      .sort((a,b) => Math.abs(a.x - colX) - Math.abs(b.x - colX));
-    if (same.length) return Number(same[0].v.toFixed(2));
-
-    if (rIdx+1 < rows.length){
-      const next = rows[rIdx+1].items
-        .map(w => ({v: moneyToken(w.text), x: w.bbox.x1}))
-        .filter(o => o.v!=null)
-        .sort((a,b) => Math.abs(a.x - colX) - Math.abs(b.x - colX));
-      if (next.length) return Number(next[0].v.toFixed(2));
-    }
+// get the last money on the same line or next line
+function amountNear(lines, idx){
+  const same = [...(lines[idx].matchAll(moneyRegex)||[])].map(m=>normMoney(m[0])).filter(v=>v!=null);
+  if(same.length) return same.at(-1);
+  if(idx+1 < lines.length){
+    const next = [...(lines[idx+1].matchAll(moneyRegex)||[])].map(m=>normMoney(m[0])).filter(v=>v!=null);
+    if(next.length) return next.at(-1);
   }
   return null;
 }
 
-/* ====================== PARSERS (regex fallback) ====================== */
-function numFromLine(s){
-  const m = s.match(/\(?-?\$?\s*\d{1,3}(?:[,\s]?\d{3})*(?:\.\d{2})?\)?/g);
-  if(!m || !m.length) return null;
-  // respect parentheses negatives
-  const raw = m.at(-1);
-  let val = Number(raw.replace(/[^\d.-]/g,''));
-  if (raw.trim().startsWith('(') && raw.trim().endsWith(')')) val = -Math.abs(val);
-  return Number.isFinite(val) ? val : null;
-}
-function findIdx(lines, words){ return lines.findIndex(L => words.some(w => L.toLowerCase().includes(w))); }
-function extract(lines, wordList){
-  const i = findIdx(lines, wordList); if(i<0) return null;
-  return numFromLine(lines[i]) ?? (lines[i+1] ? numFromLine(lines[i+1]) : null);
+function sliceBetween(lines, startKey, endKey){
+  const s = lines.findIndex(l => l.toLowerCase().includes(startKey));
+  const e = lines.findIndex(l => l.toLowerCase().includes(endKey));
+  const from = s>=0 ? s : 0;
+  const to = (e>from) ? e : lines.length;
+  return lines.slice(from, to);
 }
 
-function parseSales(lines){
-  const get = arr => extract(lines, arr);
-  const out = {
-    gross_sales: get(['gross sales']),
-    items: get(['items']),
-    service_charges: get(['service charges']),
-    returns: get(['returns']),
-    discounts_comps: get(['discounts & comps','discounts and comps','discounts']),
-    net_sales: get(['net sales']),
-    tax: get(['tax']),
-    tips: get(['tips','gratuity']),
-    gift_cards_sales: get(['gift cards sales','gift card sales','gift card']),
-    refunds_by_amount: get(['refunds by amount']),
-    total_sales: get(['total']),
-    total_collected: get(['total collected']),
-    cash: get(['cash ']), // avoid "cash sales"
-    card: get(['card','credit card charges']),
-    gift_card: get(['gift card ']),
-    fees: get(['fees']),
-    net_total: get(['net total']),
-    free_drink_discount: get(['free drink discount']),
-    paper_money_card_discount: get(['paper money card discount']),
-    pay_difference_discount: get(['pay the difference discount']),
-    cat_uncategorized: get(['uncategorized']),
-    cat_cold: get(['cold']),
-    cat_employee_prices: get(['employee prices']),
-    cat_food: get(['food']),
-    cat_hot_drinks: get(['hot drinks'])
+function parseSalesText(text){
+  const lines = textToLines(text);
+
+  // Anchors/keywords
+  const K = {
+    gross: ['gross sales'],
+    items: ['items'],
+    svc: ['service charges'],
+    returns: ['returns'],
+    disc: ['discounts & comps','discounts and comps','discounts'],
+    net: ['net sales'],
+    tax: ['tax'],
+    tips: ['tips','gratuity'],
+    giftSales: ['gift cards sales','gift card sales'],
+    refunds: ['refunds by amount'],
+    totalSales: ['total'], // in SALES section; we’ll avoid Payments by sectioning
+    totalCollected: ['total collected','grand total'],
+    cash: ['cash '], // trailing space so it doesn’t match "cash sales"
+    card: ['card','credit card charges'],
+    giftCard: ['gift card '],
+    fees: ['fees'],
+    netTotal: ['net total']
   };
-  if(out.card==null){
-    const i = findIdx(lines, ['card ×','card x']);
-    if(i>=0){ out.card = numFromLine(lines[i]); }
+
+  // Sections
+  const salesSec = sliceBetween(lines, 'sales', 'payments');
+  const paySec   = sliceBetween(lines, 'payments', 'discounts applied');
+
+  function findIn(section, keys){
+    const idx = section.findIndex(l => hasAny(l, keys));
+    if(idx<0) return null;
+    return amountNear(section, idx);
   }
+
+  const out = {
+    gross_sales:        findIn(salesSec, K.gross),
+    items:              findIn(salesSec, K.items),
+    service_charges:    findIn(salesSec, K.svc),
+    returns:            findIn(salesSec, K.returns),
+    discounts_comps:    findIn(salesSec, K.disc),
+    net_sales:          findIn(salesSec, K.net),
+    tax:                findIn(salesSec, K.tax),
+    tips:               findIn(salesSec.concat(paySec), K.tips), // Tips sometimes show under SALES or PAYMENTS
+    gift_cards_sales:   findIn(salesSec, K.giftSales),
+    refunds_by_amount:  findIn(salesSec, K.refunds),
+    total_sales:        findIn(salesSec, K.totalSales),
+
+    total_collected:    findIn(paySec, K.totalCollected) ?? findIn(lines, K.totalCollected),
+    cash:               findIn(paySec, K.cash),
+    card:               findIn(paySec, K.card),
+    gift_card:          findIn(paySec, K.giftCard),
+    fees:               findIn(paySec, K.fees),
+    net_total:          findIn(paySec, K.netTotal)
+  };
+
+  // Special: "Card × 107   $1,220.62"
+  if(out.card==null){
+    const i = paySec.findIndex(l => /card\s*[x×]/i.test(l));
+    if(i>=0) out.card = amountNear(paySec, i);
+  }
+
   return out;
 }
 
-function parseDrawer(lines){
+function parseDrawerText(text){
+  const lines = textToLines(text);
+  const K = {
+    start: ['starting cash'],
+    csales: ['cash sales'],
+    cref: ['cash refunds'],
+    inout: ['paid in/out','paid in','paid out'],
+    expected: ['expected in drawer']
+  };
+  function find(keys){
+    const i = lines.findIndex(l => hasAny(l, keys));
+    return (i>=0) ? amountNear(lines, i) : null;
+  }
   return {
-    starting_cash:      extract(lines, ['starting cash']),
-    cash_sales:         extract(lines, ['cash sales']),
-    cash_refunds:       extract(lines, ['cash refunds']),
-    paid_in_out:        extract(lines, ['paid in/out','paid in','paid out']),
-    expected_in_drawer: extract(lines, ['expected in drawer'])
+    starting_cash:      find(K.start),
+    cash_sales:         find(K.csales),
+    cash_refunds:       find(K.cref),
+    paid_in_out:        find(K.inout),
+    expected_in_drawer: find(K.expected)
   };
 }
 
@@ -368,25 +265,8 @@ function parseDrawer(lines){
 // AM Sales
 $('btnScanAmSales').addEventListener('click', async ()=>{
   const f = $('fileAmSales').files?.[0]; if(!f) return alert('Pick AM Sales photo');
-  const wordsAll = await ocrWords(f, $('statusAmSales'));
-  const lines = wordsToLines(wordsAll);
-  const s = parseSales(lines);
-
-  // Focus on PAYMENTS section to anchor right column
-  const payWords = bandSliceByAnchor(wordsAll, 'payments', 'discounts');
-  const colX = estimateMoneyColumn(payWords) ?? estimateMoneyColumn(wordsAll);
-
-  const tipsFix  = extractAmountNearColumn(payWords, ['tips','tip'], colX);
-  const cardFix  = extractAmountNearColumn(payWords, ['card'], colX);
-  const cashFix  = extractAmountNearColumn(payWords, ['cash'], colX);
-  const giftFix  = extractAmountNearColumn(payWords, ['giftcard','gift card'], colX);
-  const totalFix = extractAmountNearColumn(payWords, ['totalcollected','total'], colX);
-
-  if(tipsFix  != null) s.tips = tipsFix;
-  if(cardFix  != null) s.card = cardFix;
-  if(cashFix  != null) s.cash = cashFix;
-  if(giftFix  != null) s.gift_card = giftFix;
-  if(totalFix != null) s.total_collected = totalFix;
+  const text = await ocrText(f, $('statusAmSales'));
+  const s = parseSalesText(text);
 
   renderMirror('amSalesMirror', RECEIPT_SALES, s);
   setNum('am_total_collected', s.total_collected);
@@ -403,16 +283,8 @@ $('btnScanAmSales').addEventListener('click', async ()=>{
 // AM Drawer
 $('btnScanAmDrawer').addEventListener('click', async ()=>{
   const f=$('fileAmDrawer').files?.[0]; if(!f) return alert('Pick AM Drawer photo');
-  const words = await ocrWords(f, $('statusAmDrawer'));
-  const lines = wordsToLines(words);
-  const d = parseDrawer(lines);
-
-  const rfix = keyLabels => extractAmountNearColumn(words, keyLabels, estimateMoneyColumn(words) ?? 9e9);
-  d.starting_cash      ??= rfix(['startingcash','starting']);
-  d.cash_sales         ??= rfix(['cashsales']);
-  d.cash_refunds       ??= rfix(['cashrefunds','refunds']);
-  d.paid_in_out        ??= rfix(['paidin/out','paidin','paidout','in/out']);
-  d.expected_in_drawer ??= rfix(['expectedindrawer','expected']);
+  const text = await ocrText(f, $('statusAmDrawer'));
+  const d = parseDrawerText(text);
 
   renderMirror('amDrawerMirror', RECEIPT_DRAWER, d);
   setNum('am_starting_cash', d.starting_cash);
@@ -426,38 +298,21 @@ $('btnScanAmDrawer').addEventListener('click', async ()=>{
   recalcAll();
 });
 
-// PM Sales (AM + PM scans or manual)
+// PM Sales (requires AM & PM scans or manual entry)
 let pmAmParsed=null, pmParsed=null;
 
 $('btnScanPmAmSales').addEventListener('click', async ()=>{
   const f=$('filePmAmSales').files?.[0]; if(!f) return alert('Pick AM Sales (earlier shift) photo');
-  const words = await ocrWords(f, $('statusPmAm'));
-  const lines = wordsToLines(words);
-  pmAmParsed = parseSales(lines);
+  const text = await ocrText(f, $('statusPmAm'));
+  pmAmParsed = parseSalesText(text);
   renderMirror('pmAmSalesMirror', RECEIPT_SALES, pmAmParsed);
   setText('pmSalesChip','AM scanned','badge');
 });
 
 $('btnScanPmSales').addEventListener('click', async ()=>{
   const f=$('filePmSales').files?.[0]; if(!f) return alert('Pick PM Sales (your shift) photo');
-  const wordsAll = await ocrWords(f, $('statusPmSales'));
-  const lines = wordsToLines(wordsAll);
-  pmParsed = parseSales(lines);
-
-  const payWords = bandSliceByAnchor(wordsAll, 'payments', 'discounts');
-  const colX = estimateMoneyColumn(payWords) ?? estimateMoneyColumn(wordsAll);
-
-  const tipsFix  = extractAmountNearColumn(payWords, ['tips','tip'], colX);
-  const cardFix  = extractAmountNearColumn(payWords, ['card'], colX);
-  const cashFix  = extractAmountNearColumn(payWords, ['cash'], colX);
-  const giftFix  = extractAmountNearColumn(payWords, ['giftcard','gift card'], colX);
-  const totalFix = extractAmountNearColumn(payWords, ['totalcollected','total'], colX);
-
-  if(tipsFix  != null) pmParsed.tips = tipsFix;
-  if(cardFix  != null) pmParsed.card = cardFix;
-  if(cashFix  != null) pmParsed.cash = cashFix;
-  if(giftFix  != null) pmParsed.gift_card = giftFix;
-  if(totalFix != null) pmParsed.total_collected = totalFix;
+  const text = await ocrText(f, $('statusPmSales'));
+  pmParsed = parseSalesText(text);
 
   renderMirror('pmSalesMirror', RECEIPT_SALES, pmParsed);
   setNum('pm_total_collected', pmParsed.total_collected);
@@ -474,16 +329,8 @@ $('btnScanPmSales').addEventListener('click', async ()=>{
 // PM Drawer
 $('btnScanPmDrawer').addEventListener('click', async ()=>{
   const f=$('filePmDrawer').files?.[0]; if(!f) return alert('Pick PM Drawer photo');
-  const words = await ocrWords(f, $('statusPmDrawer'));
-  const lines = wordsToLines(words);
-  const d = parseDrawer(lines);
-
-  const rfix = keyLabels => extractAmountNearColumn(words, keyLabels, estimateMoneyColumn(words) ?? 9e9);
-  d.starting_cash      ??= rfix(['startingcash','starting']);
-  d.cash_sales         ??= rfix(['cashsales']);
-  d.cash_refunds       ??= rfix(['cashrefunds','refunds']);
-  d.paid_in_out        ??= rfix(['paidin/out','paidin','paidout','in/out']);
-  d.expected_in_drawer ??= rfix(['expectedindrawer','expected']);
+  const text = await ocrText(f, $('statusPmDrawer'));
+  const d = parseDrawerText(text);
 
   renderMirror('pmDrawerMirror', RECEIPT_DRAWER, d);
   setNum('pm_starting_cash', d.starting_cash);
@@ -518,22 +365,26 @@ function recalc(prefix){
   const shift = fix2(card + dep);
   setNum(`${prefix}_shift_total`, shift);
 
+  // Use "Expected in Drawer" as ending cash for equations
   const starting = getNum(`${prefix}_starting_cash`) || 0;
   const ending   = getNum(`${prefix}_expected_in_drawer`) || 0;
   const expenses = getNum(`${prefix}_expenses`) || 0;
 
+  // Sales Total = Total Collected − Tips − Gift Card + Starting − Expected − Expenses
   const sales = (getNum(`${prefix}_total_collected`)||0)
     - (getNum(`${prefix}_tips`)||0)
     - (getNum(`${prefix}_gift_card`)||0)
     + starting - ending - expenses;
   setNum(`${prefix}_sales_total`, fix2(sales));
 
+  // Mishandled = Starting − Shift + Expenses
   const mish = starting - shift + expenses;
   setNum(`${prefix}_mishandled_cash`, fix2(mish));
 }
 
 function recalcAll(){ recalc('am'); recalc('pm'); gateSubmit(); }
 
+// Recalc on any numeric/date/time inputs
 qsa('input').forEach(el=>{
   if(['number','date','time'].includes(el.type)){
     el.addEventListener('input', recalcAll);
@@ -564,7 +415,7 @@ $('submitBtn').addEventListener('click', async ()=>{
     time_of_entry: $('time').value,
     shift: $('shiftPM').checked ? 'PM' : 'AM',
 
-    // AM
+    // AM summary + drawer + deposit + computed
     am_total_collected:getNum('am_total_collected'),
     am_tips:getNum('am_tips'),
     am_card:getNum('am_card'),
@@ -588,7 +439,7 @@ $('submitBtn').addEventListener('click', async ()=>{
     am_sales_total:getNum('am_sales_total'),
     am_mishandled_cash:getNum('am_mishandled_cash'),
 
-    // PM
+    // PM summary + drawer + deposit + computed
     pm_total_collected:getNum('pm_total_collected'),
     pm_tips:getNum('pm_tips'),
     pm_card:getNum('pm_card'),
