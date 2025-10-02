@@ -49,6 +49,7 @@ function applyShiftUI(){
 
 /* ====================== RECEIPT FIELD LISTS (for mirrors) ====================== */
 const RECEIPT_SALES = [
+  // SALES
   { label:'Gross Sales', key:'gross_sales' },
   { label:'Items', key:'items' },
   { label:'Service Charges', key:'service_charges' },
@@ -60,21 +61,24 @@ const RECEIPT_SALES = [
   { label:'Gift Cards Sales', key:'gift_cards_sales' },
   { label:'Refunds by Amount', key:'refunds_by_amount' },
   { label:'Total', key:'total_sales' },
-  // Payments
+
+  // PAYMENTS
   { label:'Total Collected', key:'total_collected' },
   { label:'Cash', key:'cash' },
   { label:'Card', key:'card' },
   { label:'Gift Card', key:'gift_card' },
   { label:'Fees', key:'fees' },
   { label:'Net Total', key:'net_total' },
-  // Discounts (optional)
+
+  // DISCOUNTS APPLIED (all optional)
+  { label:'Employee Discount', key:'employee_discount' },
   { label:'Free Drink Discount', key:'free_drink_discount' },
   { label:'Paper Money Card Discount', key:'paper_money_card_discount' },
   { label:'Pay the Difference Discount', key:'pay_difference_discount' },
-  // Categories (optional)
+
+  // CATEGORY SALES (optional)
   { label:'Uncategorized', key:'cat_uncategorized' },
   { label:'Cold', key:'cat_cold' },
-  { label:'Employee Prices', key:'cat_employee_prices' },
   { label:'Food', key:'cat_food' },
   { label:'Hot Drinks', key:'cat_hot_drinks' }
 ];
@@ -103,8 +107,8 @@ function renderMirror(hostId, spec, values){
   });
 }
 
-/* ====================== SIMPLE IMAGE RESIZE (fast & stable) ====================== */
-async function fileToResizedDataURL(file, maxSide = 1600) {
+/* ====================== SIMPLE IMAGE RESIZE (OCR-friendly) ====================== */
+async function fileToResizedDataURL(file, maxSide = 2000) {
   const img = new Image();
   img.crossOrigin = 'anonymous';
   const url = URL.createObjectURL(file);
@@ -113,15 +117,16 @@ async function fileToResizedDataURL(file, maxSide = 1600) {
   const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
   const w = Math.round(img.width * scale);
   const h = Math.round(img.height * scale);
+
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently:true });
 
-  // Light contrast lift for faint thermal text
-  ctx.filter = 'contrast(115%) brightness(105%)';
+  // Stronger lift for faint lower sections on thermal paper
+  ctx.filter = 'contrast(135%) brightness(112%)';
   ctx.drawImage(img, 0, 0, w, h);
 
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
   URL.revokeObjectURL(url);
   return dataUrl;
 }
@@ -132,7 +137,8 @@ async function ocrText(file, statusEl){
   const dataUrl = await fileToResizedDataURL(file);
   const { data } = await Tesseract.recognize(dataUrl, 'eng', {
     logger: m => setText(statusEl.id, (m.status || 'OCR…') + (m.progress?` ${Math.round(m.progress*100)}%`:''), 'pill'),
-    tessedit_pageseg_mode: 4,   // single column works well on these receipts
+    // PSM 6 works better for these Square printouts than 4
+    tessedit_pageseg_mode: 6,
     preserve_interword_spaces: '1',
     user_defined_dpi: '300'
   });
@@ -151,34 +157,87 @@ const normMoney = s => {
   return parenNeg ? -Math.abs(n) : n;
 };
 const hasAny = (s, arr) => arr.some(w => s.toLowerCase().includes(w));
+const headerLike = s => String(s||'').toLowerCase().replace(/[^a-z]/g,'');
 
 function textToLines(text){
   return text.split(/\r?\n/).map(s=>s.replace(/\s{2,}/g,' ').trim()).filter(Boolean);
 }
 
-// get the last money on the same line or next line
+// Same line → next line → previous line
 function amountNear(lines, idx){
-  const same = [...(lines[idx].matchAll(moneyRegex)||[])].map(m=>normMoney(m[0])).filter(v=>v!=null);
-  if(same.length) return same.at(-1);
-  if(idx+1 < lines.length){
-    const next = [...(lines[idx+1].matchAll(moneyRegex)||[])].map(m=>normMoney(m[0])).filter(v=>v!=null);
-    if(next.length) return next.at(-1);
-  }
+  const pick = L => [...(L.matchAll(moneyRegex)||[])].map(m=>normMoney(m[0])).filter(v=>v!=null).at(-1);
+  const same = pick(lines[idx]); if(same!=null) return same;
+  if(idx+1 < lines.length){ const next = pick(lines[idx+1]); if(next!=null) return next; }
+  if(idx-1 >= 0){ const prev = pick(lines[idx-1]); if(prev!=null) return prev; }
   return null;
 }
 
-function sliceBetween(lines, startKey, endKey){
-  const s = lines.findIndex(l => l.toLowerCase().includes(startKey));
-  const e = lines.findIndex(l => l.toLowerCase().includes(endKey));
+// Fuzzy anchor finders
+function findAnchorIdx(lines, tester){
+  for(let i=0;i<lines.length;i++){
+    const h = headerLike(lines[i]);
+    if (tester(h)) return i;
+  }
+  return -1;
+}
+const isSalesHdr     = h => /^(sales|saless?)$/.test(h) || h.startsWith('sales');
+const isPaymentsHdr  = h => /payments?/.test(h);
+const isDiscountsHdr = h => /discountsapplied/.test(h) || /discounts/.test(h);
+const isCategoryHdr  = h => /categorysales/.test(h)  || /category/.test(h);
+
+function sliceBetweenFuzzy(lines, startTest, endTest){
+  const s = findAnchorIdx(lines, startTest);
+  const e = findAnchorIdx(lines, endTest);
   const from = s>=0 ? s : 0;
   const to = (e>from) ? e : lines.length;
   return lines.slice(from, to);
 }
 
+function parseDiscountsAnywhere(lines){
+  const out = {};
+  const map = {
+    employee_discount:         /employee\s*discount/i,
+    free_drink_discount:       /free\s*drink\s*discount/i,
+    paper_money_card_discount: /paper\s*money\s*card\s*discount/i,
+    pay_difference_discount:   /pay\s*the\s*difference\s*discount/i
+  };
+  lines.forEach((L, idx)=>{
+    for(const [key, rx] of Object.entries(map)){
+      if(rx.test(L)) out[key] = amountNear(lines, idx);
+    }
+  });
+  return out;
+}
+
+function parseCategoriesAnywhere(lines){
+  const out = {};
+  const map = {
+    cat_cold:         /\bcold\b/i,
+    cat_food:         /\bfood\b/i,
+    cat_hot_drinks:   /\bhot\s*drinks?\b/i,
+    cat_uncategorized:/\buncategorized\b/i
+  };
+  lines.forEach((L, idx)=>{
+    for(const [key, rx] of Object.entries(map)){
+      if(rx.test(L)) {
+        const v = amountNear(lines, idx);
+        if(v!=null) out[key] = v;
+      }
+    }
+  });
+  return out;
+}
+
 function parseSalesText(text){
   const lines = textToLines(text);
 
-  // Anchors/keywords
+  // Fuzzy sections
+  const salesSec = sliceBetweenFuzzy(lines, isSalesHdr, isPaymentsHdr);
+  const paySec   = sliceBetweenFuzzy(lines, isPaymentsHdr, isDiscountsHdr);
+  const discSec  = sliceBetweenFuzzy(lines, isDiscountsHdr, isCategoryHdr);
+  const catSec   = sliceBetweenFuzzy(lines, isCategoryHdr, () => false); // until end
+
+  // Keywords
   const K = {
     gross: ['gross sales'],
     items: ['items'],
@@ -188,20 +247,16 @@ function parseSalesText(text){
     net: ['net sales'],
     tax: ['tax'],
     tips: ['tips','gratuity'],
-    giftSales: ['gift cards sales','gift card sales'],
+    giftSales: ['gift cards sales','gift card sales','gift cards'],
     refunds: ['refunds by amount'],
-    totalSales: ['total'], // in SALES section; we’ll avoid Payments by sectioning
+    totalSales: ['total'], // only meaningful inside SALES block
     totalCollected: ['total collected','grand total'],
-    cash: ['cash '], // trailing space so it doesn’t match "cash sales"
+    cash: ['cash '], // keep space to avoid "cash sales"
     card: ['card','credit card charges'],
     giftCard: ['gift card '],
     fees: ['fees'],
     netTotal: ['net total']
   };
-
-  // Sections
-  const salesSec = sliceBetween(lines, 'sales', 'payments');
-  const paySec   = sliceBetween(lines, 'payments', 'discounts applied');
 
   function findIn(section, keys){
     const idx = section.findIndex(l => hasAny(l, keys));
@@ -210,6 +265,7 @@ function parseSalesText(text){
   }
 
   const out = {
+    // SALES
     gross_sales:        findIn(salesSec, K.gross),
     items:              findIn(salesSec, K.items),
     service_charges:    findIn(salesSec, K.svc),
@@ -217,11 +273,12 @@ function parseSalesText(text){
     discounts_comps:    findIn(salesSec, K.disc),
     net_sales:          findIn(salesSec, K.net),
     tax:                findIn(salesSec, K.tax),
-    tips:               findIn(salesSec.concat(paySec), K.tips), // Tips sometimes show under SALES or PAYMENTS
+    tips:               findIn(salesSec.concat(paySec), K.tips), // Tips may appear in either block
     gift_cards_sales:   findIn(salesSec, K.giftSales),
     refunds_by_amount:  findIn(salesSec, K.refunds),
     total_sales:        findIn(salesSec, K.totalSales),
 
+    // PAYMENTS
     total_collected:    findIn(paySec, K.totalCollected) ?? findIn(lines, K.totalCollected),
     cash:               findIn(paySec, K.cash),
     card:               findIn(paySec, K.card),
@@ -230,11 +287,17 @@ function parseSalesText(text){
     net_total:          findIn(paySec, K.netTotal)
   };
 
-  // Special: "Card × 107   $1,220.62"
+  // Special case: "Card × 107   $1,220.62"
   if(out.card==null){
     const i = paySec.findIndex(l => /card\s*[x×]/i.test(l));
     if(i>=0) out.card = amountNear(paySec, i);
   }
+
+  // DISCOUNTS (tolerate missing header)
+  Object.assign(out, parseDiscountsAnywhere(discSec.length ? discSec : lines));
+
+  // CATEGORY SALES (tolerate missing header)
+  Object.assign(out, parseCategoriesAnywhere(catSec.length ? catSec : lines));
 
   return out;
 }
@@ -298,7 +361,7 @@ $('btnScanAmDrawer').addEventListener('click', async ()=>{
   recalcAll();
 });
 
-// PM Sales (requires AM & PM scans or manual entry)
+// PM Sales (AM + PM scans)
 let pmAmParsed=null, pmParsed=null;
 
 $('btnScanPmAmSales').addEventListener('click', async ()=>{
