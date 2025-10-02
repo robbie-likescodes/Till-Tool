@@ -72,40 +72,35 @@
           <h2>AM Sales Report</h2>
           <span id="amSalesChip" class="badge">waiting</span>
         </div>
+
         <div class="row">
           <input id="fileAmSales" type="file" accept="image/*" capture="environment" />
           <button id="btnScanAmSales" class="btn btn-grad tiny" type="button">Scan AM Sales</button>
           <span id="statusAmSales" class="pill">Idle</span>
         </div>
 
-        <!-- Summary (editable payment block) -->
+        <!-- Preview ONLY: Total Collected + Tips -->
         <div class="grid grid-2-md mt-12">
           <div><label>Total Collected</label><div class="field"><input id="am_total_collected" type="number" step="0.01" inputmode="decimal"></div></div>
           <div><label>Tips</label><div class="field"><input id="am_tips" type="number" step="0.01" inputmode="decimal"></div></div>
-         
         </div>
 
-        <!-- Full mirror of the receipt (optional review) -->
+        <!-- Full mirror (hidden until opened) -->
         <details id="amSalesDetails" class="mt-12">
           <summary class="pill">Review full receipt (Sales • Payments • Discounts • Category Sales)</summary>
 
-          <!-- Structured headers for clarity. JS still injects inputs into #amSalesMirror. -->
-          <div class="mt-12">
-            <div class="subtle-hdr">SALES</div>
-          </div>
-          <div class="mt-8">
-            <div class="subtle-hdr">PAYMENTS</div>
-          </div>
+          <div class="mt-12"><div class="subtle-hdr">SALES</div></div>
+          <div class="mt-8"><div class="subtle-hdr">PAYMENTS</div></div>
           <div class="mt-8">
             <div class="subtle-hdr">DISCOUNTS APPLIED</div>
-            <div class="hint">Expected labels on your receipts: <em>Employee Discount</em>, <em>Free Drink Discount</em>, <em>Paper Money Card Discount</em>, <em>Pay the Difference Discount</em>.</div>
+            <div class="hint">Employee Discount • Free Drink Discount • Paper Money Card Discount • Pay the Difference Discount</div>
           </div>
           <div class="mt-8">
             <div class="subtle-hdr">CATEGORY SALES</div>
-            <div class="hint">Common categories: <em>Cold</em>, <em>Food</em>, <em>Hot Drinks</em> (sometimes <em>Uncategorized</em>).</div>
+            <div class="hint">Cold • Food • Hot Drinks • (Uncategorized if present)</div>
           </div>
 
-          <!-- The JS renders all line items here in receipt order -->
+          <!-- JS injects the full mirror here -->
           <div id="amSalesMirror" class="grid grid-2-md mt-12"></div>
         </details>
       </div>
@@ -116,18 +111,14 @@
           <h2>AM Drawer Report</h2>
           <span id="amDrawerChip" class="badge">waiting</span>
         </div>
+
         <div class="row">
           <input id="fileAmDrawer" type="file" accept="image/*" capture="environment" />
           <button id="btnScanAmDrawer" class="btn btn-grad tiny" type="button">Scan AM Drawer</button>
           <span id="statusAmDrawer" class="pill">Idle</span>
         </div>
 
-        <div class="grid grid-2-md mt-12">
-          <div><label>Starting Cash</label><div class="field"><input id="am_starting_cash" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>Cash Sales</label><div class="field"><input id="am_cash_sales_drawer" type="number" step="0.01" inputmode="decimal"></div></div>
-        
-        </div>
-
+        <!-- No drawer fields previewed; review panel only -->
         <details id="amDrawerDetails" class="mt-12">
           <summary class="pill">Review scanned drawer details</summary>
           <div id="amDrawerMirror" class="grid grid-2-md mt-12"></div>
@@ -195,11 +186,10 @@
           </div>
         </div>
 
-        <!-- PM summary -->
+        <!-- Preview ONLY: PM Total Collected + PM Tips -->
         <div class="grid grid-2-md mt-12">
           <div><label>PM Total Collected</label><div class="field"><input id="pm_total_collected" type="number" step="0.01"></div></div>
           <div><label>PM Tips</label><div class="field"><input id="pm_tips" type="number" step="0.01"></div></div>
-          
         </div>
 
         <details id="pmAmMirrorDetails" class="mt-12">
@@ -224,16 +214,9 @@
           <span id="statusPmDrawer" class="pill">Idle</span>
         </div>
 
-        <div class="grid grid-2-md mt-12">
-          <div><label>Starting Cash</label><div class="field"><input id="pm_starting_cash" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>Cash Sales</label><div class="field"><input id="pm_cash_sales_drawer" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>Cash Refunds</label><div class="field"><input id="pm_cash_refunds" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>Paid In/Out</label><div class="field"><input id="pm_paid_in_out" type="number" step="0.01" inputmode="decimal"></div></div>
-          <div><label>Expected in Drawer</label><div class="field"><input id="pm_expected_in_drawer" type="number" step="0.01" inputmode="decimal"></div></div>
-        </div>
-
+        <!-- No drawer fields previewed; review panel only -->
         <details id="pmDrawerDetails" class="mt-12">
-          <summary class="pill">Review scanned PM drawer </summary>
+          <summary class="pill">Review scanned PM drawer</summary>
           <div id="pmDrawerMirror" class="grid grid-2-md mt-12"></div>
         </details>
       </div>
