@@ -1,5 +1,4 @@
 /* ====================== CONFIG ====================== */
-// Apps Script endpoint
 const ENDPOINT = 'https://script.google.com/macros/s/AKfycbz8fXRp4uuYvEV4qWCtW3XxN5wiEIjtacv7BVhFIMEgRLztTOUfpVlGO-3_F2as5RmXHg/exec';
 const MATH_EPS = 0.02;
 
@@ -45,7 +44,7 @@ function applyShiftUI(){
   applyShiftUI();
 })();
 
-/* ====================== RECEIPT FIELD LISTS (for mirrors) ====================== */
+/* ====================== RECEIPT FIELD LISTS ====================== */
 const RECEIPT_SALES = [
   // SALES
   { label:'Gross Sales', key:'gross_sales' },
@@ -86,7 +85,9 @@ const RECEIPT_DRAWER = [
   { label:'Cash Sales', key:'cash_sales' },
   { label:'Cash Refunds', key:'cash_refunds' },
   { label:'Paid In/Out', key:'paid_in_out' },
-  { label:'Expected in Drawer', key:'expected_in_drawer' }
+  { label:'Expected in Drawer', key:'expected_in_drawer' },
+  { label:'Actual in Drawer', key:'actual_in_drawer' },  // NEW
+  { label:'Difference', key:'difference' }               // NEW
 ];
 
 /* ====================== MIRRORS ====================== */
@@ -105,7 +106,7 @@ function renderMirror(hostId, spec, values){
   });
 }
 
-/* ====================== SIMPLE IMAGE RESIZE (OCR-friendly) ====================== */
+/* ====================== SIMPLE IMAGE RESIZE ====================== */
 async function fileToResizedDataURL(file, maxSide = 2000) {
   const img = new Image();
   img.crossOrigin = 'anonymous';
@@ -120,7 +121,7 @@ async function fileToResizedDataURL(file, maxSide = 2000) {
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently:true });
 
-  // Stronger lift for faint lower sections on thermal paper
+  // Lift faint thermal paper text a bit
   ctx.filter = 'contrast(135%) brightness(112%)';
   ctx.drawImage(img, 0, 0, w, h);
 
@@ -183,16 +184,13 @@ function looksLikeHeader(line, target){
   const t = onlyLetters(target);
   if(!h || !t) return false;
   if(h.includes(t)) return true;
-  return levenshtein(h, t) <= 2; // tolerate minor OCR noise
+  return levenshtein(h, t) <= 2;
 }
 
-/* ---------- Smart section anchors (don’t rely only on headers) ---------- */
+/* ---------- Smart section anchors ---------- */
 function findSalesStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'SALES'));
-  if(i>=0){
-    const hl = onlyLetters(lines[i]);
-    if(hl !== 'sales') i = -1; // avoid "Sales Report"
-  }
+  if(i>=0 && onlyLetters(lines[i])!=='sales') i = -1; // avoid "Sales Report"
   if(i<0){
     const keys = ['gross sales','net sales','discounts & comps','discounts and comps'];
     i = lines.findIndex(l => hasAny(l, keys));
@@ -201,19 +199,17 @@ function findSalesStart(lines){
 }
 function findPaymentsStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'PAYMENTS'));
-  if(i<0){
-    i = lines.findIndex(l => hasAny(l, ['total collected','card ×','card x','gift card','net total']));
-  }
+  if(i<0) i = lines.findIndex(l => hasAny(l, ['total collected','card ×','card x','gift card','net total']));
   return i;
 }
 function findDiscountsStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'DISCOUNTS APPLIED'));
-  if(i<0){ i = lines.findIndex(l => /discount/i.test(l)); }
+  if(i<0) i = lines.findIndex(l => /discount/i.test(l));
   return i;
 }
 function findCategoryStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'CATEGORY SALES'));
-  if(i<0){ i = lines.findIndex(l => /\b(cold|hot\s*drinks?|food|uncategorized)\b/i.test(l)); }
+  if(i<0) i = lines.findIndex(l => /\b(cold|hot\s*drinks?|food|uncategorized)\b/i.test(l));
   return i;
 }
 function sliceSmart(lines){
@@ -234,7 +230,7 @@ function sliceSmart(lines){
   };
 }
 
-/* ---------- FUZZY TOKEN HELPERS (new) ---------- */
+/* ---------- FUZZY TOKEN HELPERS ---------- */
 const squash = s => s.toLowerCase().replace(/\s+/g,' ').trim();
 function tokens(s){ return squash(s).replace(/[^a-z ]/g,'').split(' ').filter(Boolean); }
 function wordLike(a,b){
@@ -248,7 +244,7 @@ function containsAllTokens(hay, req){
   return req.every(t => H.some(w => wordLike(t, w)));
 }
 
-/* ---------- Wrapped-label parsing (discounts) — REWRITTEN ---------- */
+/* ---------- Wrapped-label parsing (discounts) ---------- */
 function parseDiscountsAnywhere(lines){
   const out = {};
   const defs = [
@@ -271,14 +267,13 @@ function parseDiscountsAnywhere(lines){
     for (const {key, req} of defs) {
       if (out[key] != null) continue;
 
-      // try each window; prefer the line where "discount" is present
       let matched = null;
       for (const w of windows) {
         if (containsAllTokens(w.text, req)) { matched = w; break; }
       }
       if (!matched) continue;
 
-      // choose index that likely holds the amount (usually the second line with "Discount × n")
+      // pick where the amount likely is
       let amtIdx = i;
       const nextHasDiscount = i+1<lines.length && /discount/i.test(lines[i+1]);
       const curHasDiscount  = /discount/i.test(cur);
@@ -291,7 +286,7 @@ function parseDiscountsAnywhere(lines){
   return out;
 }
 
-/* ---------- Categories (unchanged) ---------- */
+/* ---------- Categories ---------- */
 function parseCategoriesAnywhere(lines){
   const out = {};
   const map = {
@@ -311,7 +306,7 @@ function parseCategoriesAnywhere(lines){
   return out;
 }
 
-/* ---------- Main SALES/PAYMENTS parser with smart fallbacks ---------- */
+/* ---------- Main SALES/PAYMENTS parser ---------- */
 function parseSalesText(text){
   const lines = textToLines(text);
   const { salesSec, paySec, discSec, catSec } = sliceSmart(lines);
@@ -347,7 +342,7 @@ function parseSalesText(text){
   }
 
   const out = {
-    // SALES (prefer section; fall back to whole doc)
+    // SALES
     gross_sales:        findIn(salesSec, K.gross, lines),
     items:              findIn(salesSec, K.items, lines),
     service_charges:    findIn(salesSec, K.svc, lines),
@@ -369,22 +364,19 @@ function parseSalesText(text){
     net_total:          findIn(paySec, K.netTotal, lines)
   };
 
-  // Special case: "Card × 107   $1,220.62"
+  // "Card × 107  $1,220.62"
   if(out.card==null){
     const src = paySec.length ? paySec : lines.slice(findPaymentsStart(lines)>=0?findPaymentsStart(lines):0);
     const i = src.findIndex(l => /card\s*[x×]/i.test(l));
     if(i>=0) out.card = amountNear(src, i);
   }
 
-  // DISCOUNTS (robust to header & wrapping with fuzzy tokens)
   Object.assign(out, parseDiscountsAnywhere(discSec.length ? discSec : lines));
-
-  // CATEGORY SALES
   Object.assign(out, parseCategoriesAnywhere(catSec.length ? catSec : lines));
-
   return out;
 }
 
+/* ---------- Drawer parser (with payouts/notes) ---------- */
 function parseDrawerText(text){
   const lines = textToLines(text);
   const K = {
@@ -392,18 +384,32 @@ function parseDrawerText(text){
     csales: ['cash sales'],
     cref: ['cash refunds'],
     inout: ['paid in/out','paid in','paid out'],
-    expected: ['expected in drawer']
+    expected: ['expected in drawer'],
+    actual: ['actual in drawer'],
+    diff: ['difference']
   };
   function find(keys){
     const i = lines.findIndex(l => hasAny(l, keys));
     return (i>=0) ? amountNear(lines, i) : null;
   }
+
+  // capture "Paid out at 7:26 AM -$57.25 Cc tips Kay (Kaylee W)"
+  const payoutLines = [];
+  for(const L of lines){
+    if(/\bpaid\s+(in|out)\b/i.test(L) && moneyRegex.test(L)){
+      payoutLines.push(L.trim());
+    }
+  }
+
   return {
     starting_cash:      find(K.start),
     cash_sales:         find(K.csales),
     cash_refunds:       find(K.cref),
     paid_in_out:        find(K.inout),
-    expected_in_drawer: find(K.expected)
+    expected_in_drawer: find(K.expected),
+    actual_in_drawer:   find(K.actual),
+    difference:         find(K.diff),
+    payout_details:     payoutLines.length ? payoutLines : null
   };
 }
 
@@ -438,6 +444,13 @@ $('btnScanAmDrawer').addEventListener('click', async ()=>{
   setNum('am_cash_refunds', d.cash_refunds);
   setNum('am_paid_in_out', d.paid_in_out);
   setNum('am_expected_in_drawer', d.expected_in_drawer);
+  setNum('am_actual_in_drawer', d.actual_in_drawer);
+  setNum('am_difference', d.difference);
+
+  if (d.payout_details) {
+    if ($('am_payouts_list')) $('am_payouts_list').innerHTML = d.payout_details.map(t=>`<div class="pill">${t}</div>`).join('');
+    if ($('am_paid_in_out_notes')) $('am_paid_in_out_notes').value = d.payout_details.join('; ');
+  }
 
   setText('amDrawerChip','scanned','badge');
   if ([d.starting_cash,d.expected_in_drawer].some(v=>v==null)) { const de=$('amDrawerDetails'); if(de) de.open=true; }
@@ -484,6 +497,13 @@ $('btnScanPmDrawer').addEventListener('click', async ()=>{
   setNum('pm_cash_refunds', d.cash_refunds);
   setNum('pm_paid_in_out', d.paid_in_out);
   setNum('pm_expected_in_drawer', d.expected_in_drawer);
+  setNum('pm_actual_in_drawer', d.actual_in_drawer);
+  setNum('pm_difference', d.difference);
+
+  if (d.payout_details) {
+    if ($('pm_payouts_list')) $('pm_payouts_list').innerHTML = d.payout_details.map(t=>`<div class="pill">${t}</div>`).join('');
+    if ($('pm_paid_in_out_notes')) $('pm_paid_in_out_notes').value = d.payout_details.join('; ');
+  }
 
   setText('pmDrawerChip','scanned','badge');
   if ([d.starting_cash,d.expected_in_drawer].some(v=>v==null)) { const de=$('pmDrawerDetails'); if(de) de.open=true; }
@@ -511,23 +531,26 @@ function recalc(prefix){
   const shift = fix2(card + dep);
   setNum(`${prefix}_shift_total`, shift);
 
+  // Use Expected as ending cash for equations
   const starting = getNum(`${prefix}_starting_cash`) || 0;
   const ending   = getNum(`${prefix}_expected_in_drawer`) || 0;
   const expenses = getNum(`${prefix}_expenses`) || 0;
 
+  // Sales Total = Total Collected − Tips − Gift Card + Starting − Expected − Expenses
   const sales = (getNum(`${prefix}_total_collected`)||0)
     - (getNum(`${prefix}_tips`)||0)
     - (getNum(`${prefix}_gift_card`)||0)
     + starting - ending - expenses;
   setNum(`${prefix}_sales_total`, fix2(sales));
 
+  // Mishandled = Starting − Shift + Expenses
   const mish = starting - shift + expenses;
   setNum(`${prefix}_mishandled_cash`, fix2(mish));
 }
 
 function recalcAll(){ recalc('am'); recalc('pm'); gateSubmit(); }
 
-// Recalc on any numeric/date/time inputs
+// Recalc on numeric/date/time inputs
 qsa('input').forEach(el=>{
   if(['number','date','time'].includes(el.type)){
     el.addEventListener('input', recalcAll);
@@ -569,6 +592,9 @@ $('submitBtn').addEventListener('click', async ()=>{
     am_cash_refunds:getNum('am_cash_refunds'),
     am_paid_in_out:getNum('am_paid_in_out'),
     am_expected_in_drawer:getNum('am_expected_in_drawer'),
+    am_actual_in_drawer:getNum('am_actual_in_drawer'),   // NEW
+    am_difference:getNum('am_difference'),               // NEW
+    am_paid_in_out_notes: $('am_paid_in_out_notes') ? $('am_paid_in_out_notes').value : null, // NEW
     am_expenses:getNum('am_expenses'),
     am_dep_coins:getNum('am_dep_coins'),
     am_dep_1s:getNum('am_dep_1s'),
@@ -593,6 +619,9 @@ $('submitBtn').addEventListener('click', async ()=>{
     pm_cash_refunds:getNum('pm_cash_refunds'),
     pm_paid_in_out:getNum('pm_paid_in_out'),
     pm_expected_in_drawer:getNum('pm_expected_in_drawer'),
+    pm_actual_in_drawer:getNum('pm_actual_in_drawer'),   // NEW
+    pm_difference:getNum('pm_difference'),               // NEW
+    pm_paid_in_out_notes: $('pm_paid_in_out_notes') ? $('pm_paid_in_out_notes').value : null, // NEW
     pm_expenses:getNum('pm_expenses'),
     pm_dep_coins:getNum('pm_dep_coins'),
     pm_dep_1s:getNum('pm_dep_1s'),
