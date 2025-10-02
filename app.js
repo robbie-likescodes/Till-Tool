@@ -44,7 +44,7 @@ function applyShiftUI(){
   applyShiftUI();
 })();
 
-/* ====================== RECEIPT FIELD LISTS ====================== */
+/* ====================== RECEIPT FIELD LISTS (for mirrors) ====================== */
 const RECEIPT_SALES = [
   // SALES
   { label:'Gross Sales', key:'gross_sales' },
@@ -80,17 +80,7 @@ const RECEIPT_SALES = [
   { label:'Hot Drinks', key:'cat_hot_drinks' }
 ];
 
-const RECEIPT_DRAWER = [
-  { label:'Starting Cash', key:'starting_cash' },
-  { label:'Cash Sales', key:'cash_sales' },
-  { label:'Cash Refunds', key:'cash_refunds' },
-  { label:'Paid In/Out', key:'paid_in_out' },
-  { label:'Expected in Drawer', key:'expected_in_drawer' },
-  { label:'Actual in Drawer', key:'actual_in_drawer' },  
-  { label:'Difference', key:'difference' }               
-];
-
-/* ====================== MIRRORS ====================== */
+/* ====================== MIRROR RENDERER ====================== */
 function renderMirror(hostId, spec, values){
   const host = $(hostId); if(!host) return;
   host.innerHTML = '';
@@ -106,7 +96,7 @@ function renderMirror(hostId, spec, values){
   });
 }
 
-/* ====================== SIMPLE IMAGE RESIZE ====================== */
+/* ====================== SIMPLE IMAGE RESIZE (OCR-friendly) ====================== */
 async function fileToResizedDataURL(file, maxSide = 2000) {
   const img = new Image();
   img.crossOrigin = 'anonymous';
@@ -121,6 +111,7 @@ async function fileToResizedDataURL(file, maxSide = 2000) {
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently:true });
 
+  // Lift faint thermal paper text
   ctx.filter = 'contrast(135%) brightness(112%)';
   ctx.drawImage(img, 0, 0, w, h);
 
@@ -159,17 +150,12 @@ const onlyLetters = s => String(s||'').toLowerCase().replace(/[^a-z]/g,'');
 function textToLines(text){
   return text.split(/\r?\n/).map(s=>s.replace(/\s{2,}/g,' ').trim()).filter(Boolean);
 }
-
-// STRONGER amount picker
-function stripCounts(line){
-  return String(line || '').replace(/(?:^|\s)[x×]\s*\d+\b/gi, ' ');
-}
+function stripCounts(line){ return String(line || '').replace(/(?:^|\s)[x×]\s*\d+\b/gi, ' '); }
 function bestAmountFromLine(line, {strict=false} = {}){
   if(!line) return null;
   const L = stripCounts(line);
   const matches = [...(L.matchAll(moneyRegex) || [])].map(m=>{
-    const raw = m[0];
-    const val = normMoney(raw);
+    const raw = m[0], val = normMoney(raw);
     if(val==null) return null;
     return { val, hasDollar:/\$/.test(raw), hasParen:/^\s*\(.*\)\s*$/.test(raw) };
   }).filter(Boolean);
@@ -179,6 +165,7 @@ function bestAmountFromLine(line, {strict=false} = {}){
   pool.sort((a,b)=>Math.abs(b.val)-Math.abs(a.val));
   return pool[0].val;
 }
+// Same line → next line → previous line (prefers $/() and largest)
 function amountNear(lines, idx){
   let v = bestAmountFromLine(lines[idx], {strict:true});
   if(v!=null) return v;
@@ -218,7 +205,7 @@ function looksLikeHeader(line, target){
 /* ---------- Smart section anchors ---------- */
 function findSalesStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'SALES'));
-  if(i>=0 && onlyLetters(lines[i])!=='sales') i = -1;
+  if(i>=0 && onlyLetters(lines[i])!=='sales') i = -1; // avoid "Sales Report"
   if(i<0){
     const keys = ['gross sales','net sales','discounts & comps','discounts and comps'];
     i = lines.findIndex(l => hasAny(l, keys));
@@ -367,4 +354,189 @@ function parseSalesText(text){
   };
   if(out.card==null){
     const src=paySec.length?paySec:lines;
-    const i=src.findIndex(l=>/
+    const i=src.findIndex(l=>/card\s*[x×]/i.test(l));
+    if(i>=0) out.card=amountNear(src,i);
+  }
+  Object.assign(out, parseDiscountsAnywhere(discSec.length?discSec:lines));
+  Object.assign(out, parseCategoriesAnywhere(catSec.length?catSec:lines));
+  return out;
+}
+
+/* ====================== SCAN HANDLERS (SALES ONLY) ====================== */
+// AM Sales
+$('btnScanAmSales').addEventListener('click', async ()=>{
+  const f = $('fileAmSales').files?.[0]; if(!f) return alert('Pick AM Sales photo');
+  const text = await ocrText(f, $('statusAmSales'));
+  const s = parseSalesText(text);
+
+  renderMirror('amSalesMirror', RECEIPT_SALES, s);
+  setNum('am_total_collected', s.total_collected);
+  setNum('am_tips', s.tips);
+  setNum('am_card', s.card);
+  setNum('am_cash', s.cash);
+  setNum('am_gift_card', s.gift_card ?? s.gift_cards_sales);
+
+  setText('amSalesChip','scanned','badge');
+  if ([s.total_collected,s.tips,s.card].some(v=>v==null)) { const d=$('amSalesDetails'); if(d) d.open=true; }
+  recalcAll();
+});
+
+// PM Sales
+let pmAmParsed=null, pmParsed=null;
+$('btnScanPmAmSales').addEventListener('click', async ()=>{
+  const f=$('filePmAmSales').files?.[0]; if(!f) return alert('Pick AM Sales (earlier shift) photo');
+  const text = await ocrText(f, $('statusPmAm'));
+  pmAmParsed = parseSalesText(text);
+  renderMirror('pmAmSalesMirror', RECEIPT_SALES, pmAmParsed);
+  setText('pmSalesChip','AM scanned','badge');
+});
+$('btnScanPmSales').addEventListener('click', async ()=>{
+  const f=$('filePmSales').files?.[0]; if(!f) return alert('Pick PM Sales (your shift) photo');
+  const text = await ocrText(f, $('statusPmSales'));
+  pmParsed = parseSalesText(text);
+
+  renderMirror('pmSalesMirror', RECEIPT_SALES, pmParsed);
+  setNum('pm_total_collected', pmParsed.total_collected);
+  setNum('pm_tips', pmParsed.tips);
+  setNum('pm_card', pmParsed.card);
+  setNum('pm_cash', pmParsed.cash);
+  setNum('pm_gift_card', pmParsed.gift_card ?? pmParsed.gift_cards_sales);
+
+  setText('pmSalesChip','PM scanned','badge');
+  if ([pmParsed.total_collected, pmParsed.tips, pmParsed.card].some(v=>v==null)) { const d=$('pmSalesDetails'); if(d) d.open=true; }
+  recalcAll();
+});
+
+/* ====================== COMPUTATIONS ====================== */
+function depTotal(prefix){
+  return fix2(
+    (getNum(`${prefix}_dep_coins`)||0) +
+    (getNum(`${prefix}_dep_1s`)||0) +
+    (getNum(`${prefix}_dep_5s`)||0) +
+    (getNum(`${prefix}_dep_10s`)||0) +
+    (getNum(`${prefix}_dep_20s`)||0) +
+    (getNum(`${prefix}_dep_50s`)||0) +
+    (getNum(`${prefix}_dep_100s`)||0)
+  );
+}
+
+function recalc(prefix){
+  const card = getNum(`${prefix}_card`)||0;
+  const dep  = depTotal(prefix);
+  setNum(`${prefix}_cash_deposit_total`, dep);
+
+  const shift = fix2(card + dep);
+  setNum(`${prefix}_shift_total`, shift);
+
+  const starting = getNum(`${prefix}_starting_cash`) || 0;   // only required field now
+  const expenses = getNum(`${prefix}_expenses`) || 0;
+
+  // Sales Total = Total Collected − Tips − Gift Card + Starting − Expenses
+  const sales = (getNum(`${prefix}_total_collected`)||0)
+    - (getNum(`${prefix}_tips`)||0)
+    - (getNum(`${prefix}_gift_card`)||0)
+    + starting - expenses;
+  setNum(`${prefix}_sales_total`, fix2(sales));
+
+  // Mishandled = Starting − Shift + Expenses
+  const mish = starting - shift + expenses;
+  setNum(`${prefix}_mishandled_cash`, fix2(mish));
+}
+
+function recalcAll(){ recalc('am'); recalc('pm'); gateSubmit(); }
+
+// Recalc on numeric/date/time inputs
+qsa('input').forEach(el=>{
+  if(['number','date','time'].includes(el.type)){
+    el.addEventListener('input', recalcAll);
+  }
+});
+$('recalcBtn').addEventListener('click', recalcAll);
+
+/* ====================== SUBMIT GATE ====================== */
+function gateSubmit(){
+  const baseOk = $('store').value.trim() && $('date').value && $('time').value;
+  const pm = $('shiftPM').checked;
+  const needStart = pm ? getNum('pm_starting_cash')!=null : getNum('am_starting_cash')!=null;
+  const ok = baseOk && needStart;
+  $('submitBtn').disabled = !ok;
+  setText('saveHint', ok ? 'Ready to submit ✓' : 'Fill store/date/time + Starting Cash', ok ? '' : 'muted');
+}
+
+/* ====================== SUBMIT ====================== */
+$('submitBtn').addEventListener('click', async ()=>{
+  if(!$('store').value.trim() || !$('date').value || !$('time').value){
+    alert('Please fill Store, Date and Time'); return;
+  }
+  // enforce required Starting Cash for active shift
+  if ($('shiftPM').checked && getNum('pm_starting_cash')==null) {
+    alert('Please enter PM Starting Cash'); return;
+  }
+  if (!$('shiftPM').checked && getNum('am_starting_cash')==null) {
+    alert('Please enter AM Starting Cash'); return;
+  }
+
+  const payload = {
+    source:'Web App',
+    submission_id:(crypto.randomUUID?crypto.randomUUID():'web-'+Date.now()),
+    first_name: $('firstName').value.trim(),
+    last_name: $('lastName').value.trim(),
+    store_location: $('store').value.trim(),
+    todays_date: $('date').value,
+    time_of_entry: $('time').value,
+    shift: $('shiftPM').checked ? 'PM' : 'AM',
+
+    // AM (drawer removed; starting cash kept)
+    am_total_collected:getNum('am_total_collected'),
+    am_tips:getNum('am_tips'),
+    am_card:getNum('am_card'),
+    am_cash:getNum('am_cash'),
+    am_gift_card:getNum('am_gift_card'),
+    am_starting_cash:getNum('am_starting_cash'),
+    am_expenses:getNum('am_expenses'),
+    am_dep_coins:getNum('am_dep_coins'),
+    am_dep_1s:getNum('am_dep_1s'),
+    am_dep_5s:getNum('am_dep_5s'),
+    am_dep_10s:getNum('am_dep_10s'),
+    am_dep_20s:getNum('am_dep_20s'),
+    am_dep_50s:getNum('am_dep_50s'),
+    am_dep_100s:getNum('am_dep_100s'),
+    am_cash_deposit_total:getNum('am_cash_deposit_total'),
+    am_shift_total:getNum('am_shift_total'),
+    am_sales_total:getNum('am_sales_total'),
+    am_mishandled_cash:getNum('am_mishandled_cash'),
+
+    // PM (drawer removed; starting cash kept)
+    pm_total_collected:getNum('pm_total_collected'),
+    pm_tips:getNum('pm_tips'),
+    pm_card:getNum('pm_card'),
+    pm_cash:getNum('pm_cash'),
+    pm_gift_card:getNum('pm_gift_card'),
+    pm_starting_cash:getNum('pm_starting_cash'),
+    pm_expenses:getNum('pm_expenses'),
+    pm_dep_coins:getNum('pm_dep_coins'),
+    pm_dep_1s:getNum('pm_dep_1s'),
+    pm_dep_5s:getNum('pm_dep_5s'),
+    pm_dep_10s:getNum('pm_dep_10s'),
+    pm_dep_20s:getNum('pm_dep_20s'),
+    pm_dep_50s:getNum('pm_dep_50s'),
+    pm_dep_100s:getNum('pm_dep_100s'),
+    pm_cash_deposit_total:getNum('pm_cash_deposit_total'),
+    pm_shift_total:getNum('pm_shift_total'),
+    pm_sales_total:getNum('pm_sales_total'),
+    pm_mishandled_cash:getNum('pm_mishandled_cash')
+  };
+
+  setText('saveHint','Saving…','muted');
+  try{
+    const r = await fetch(ENDPOINT, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const js = await r.json();
+    setText('saveHint', js.ok ? 'Saved ✓' : ('Error: '+(js.error||'unknown')));
+  }catch(e){
+    setText('saveHint','Network error','muted');
+  }
+});
