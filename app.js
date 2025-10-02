@@ -70,13 +70,13 @@ const RECEIPT_SALES = [
   { label:'Fees', key:'fees' },
   { label:'Net Total', key:'net_total' },
 
-  // DISCOUNTS APPLIED (all optional)
+  // DISCOUNTS APPLIED
   { label:'Employee Discount', key:'employee_discount' },
   { label:'Free Drink Discount', key:'free_drink_discount' },
   { label:'Paper Money Card Discount', key:'paper_money_card_discount' },
   { label:'Pay the Difference Discount', key:'pay_difference_discount' },
 
-  // CATEGORY SALES (optional)
+  // CATEGORY SALES
   { label:'Uncategorized', key:'cat_uncategorized' },
   { label:'Cold', key:'cat_cold' },
   { label:'Food', key:'cat_food' },
@@ -137,7 +137,6 @@ async function ocrText(file, statusEl){
   const dataUrl = await fileToResizedDataURL(file);
   const { data } = await Tesseract.recognize(dataUrl, 'eng', {
     logger: m => setText(statusEl.id, (m.status || 'OCR…') + (m.progress?` ${Math.round(m.progress*100)}%`:''), 'pill'),
-    // PSM 6 works better for these Square printouts than 4
     tessedit_pageseg_mode: 6,
     preserve_interword_spaces: '1',
     user_defined_dpi: '300'
@@ -193,19 +192,52 @@ function sliceBetweenFuzzy(lines, startTest, endTest){
   return lines.slice(from, to);
 }
 
+/* ---------- NEW: helpers for wrapped labels ---------- */
+const squash = s => s.toLowerCase().replace(/\s+/g,' ').trim();
+
+/* ---------- UPDATED: discount parsing tolerant to wrapped labels ---------- */
 function parseDiscountsAnywhere(lines){
   const out = {};
-  const map = {
-    employee_discount:         /employee\s*discount/i,
-    free_drink_discount:       /free\s*drink\s*discount/i,
-    paper_money_card_discount: /paper\s*money\s*card\s*discount/i,
-    pay_difference_discount:   /pay\s*the\s*difference\s*discount/i
+  const patterns = {
+    employee_discount:         /employee\s+discount/,
+    free_drink_discount:       /free\s+drink\s+discount/,
+    paper_money_card_discount: /paper\s+money\s+card\s+discount/,
+    pay_difference_discount:   /pay\s+the\s+difference\s+discount/
   };
-  lines.forEach((L, idx)=>{
-    for(const [key, rx] of Object.entries(map)){
-      if(rx.test(L)) out[key] = amountNear(lines, idx);
+
+  for (let i = 0; i < lines.length; i++) {
+    const cur = squash(lines[i]);
+
+    // 1) Single-line match
+    for (const [key, rx] of Object.entries(patterns)) {
+      if (rx.test(cur) && out[key] == null) {
+        out[key] = amountNear(lines, i);
+      }
     }
-  });
+
+    // 2) Two-line wrap: "Paper Money Card" + "Discount × n"
+    if (i + 1 < lines.length) {
+      const next = squash(lines[i + 1]);
+      const join = `${cur} ${next}`;           // treat as one logical line
+      for (const [key, rx] of Object.entries(patterns)) {
+        if (rx.test(join) && out[key] == null) {
+          // Amount is printed on the right of the second line on your receipts
+          out[key] = amountNear(lines, i + 1) ?? amountNear(lines, i);
+        }
+      }
+    }
+
+    // 3) Rare wrap where "Discount" is first line, remainder above
+    if (i > 0) {
+      const prev = squash(lines[i - 1]);
+      const joinPrev = `${prev} ${cur}`;
+      for (const [key, rx] of Object.entries(patterns)) {
+        if (rx.test(joinPrev) && out[key] == null) {
+          out[key] = amountNear(lines, i) ?? amountNear(lines, i - 1);
+        }
+      }
+    }
+  }
   return out;
 }
 
@@ -273,7 +305,7 @@ function parseSalesText(text){
     discounts_comps:    findIn(salesSec, K.disc),
     net_sales:          findIn(salesSec, K.net),
     tax:                findIn(salesSec, K.tax),
-    tips:               findIn(salesSec.concat(paySec), K.tips), // Tips may appear in either block
+    tips:               findIn(salesSec.concat(paySec), K.tips),
     gift_cards_sales:   findIn(salesSec, K.giftSales),
     refunds_by_amount:  findIn(salesSec, K.refunds),
     total_sales:        findIn(salesSec, K.totalSales),
@@ -293,7 +325,7 @@ function parseSalesText(text){
     if(i>=0) out.card = amountNear(paySec, i);
   }
 
-  // DISCOUNTS (tolerate missing header)
+  // DISCOUNTS (robust to header & wrapping)
   Object.assign(out, parseDiscountsAnywhere(discSec.length ? discSec : lines));
 
   // CATEGORY SALES (tolerate missing header)
