@@ -26,14 +26,12 @@ function applyShiftUI(){
   $('date').value = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
   $('time').value = now.toTimeString().slice(0,5);
 
-  // Remember identity on device
   ['firstName','lastName','store'].forEach(k=>{
     const el=$(k); const saved=localStorage.getItem('dd_'+k);
     if(saved) el.value = saved;
     el.addEventListener('input',()=>localStorage.setItem('dd_'+k, el.value));
   });
 
-  // Auto-pick shift by time, allow override
   const pm = isPM($('time').value);
   $('shiftPM').checked = pm; $('shiftAM').checked = !pm;
 
@@ -156,7 +154,7 @@ const normMoney = s => {
   return parenNeg ? -Math.abs(n) : n;
 };
 const hasAny = (s, arr) => arr.some(w => s.toLowerCase().includes(w));
-const headerLike = s => String(s||'').toLowerCase().replace(/[^a-z]/g,'');
+const onlyLetters = s => String(s||'').toLowerCase().replace(/[^a-z]/g,'');
 
 function textToLines(text){
   return text.split(/\r?\n/).map(s=>s.replace(/\s{2,}/g,' ').trim()).filter(Boolean);
@@ -171,31 +169,85 @@ function amountNear(lines, idx){
   return null;
 }
 
-// Fuzzy anchor finders
-function findAnchorIdx(lines, tester){
-  for(let i=0;i<lines.length;i++){
-    const h = headerLike(lines[i]);
-    if (tester(h)) return i;
+/* ---------- Fuzzy header helpers ---------- */
+function levenshtein(a,b){
+  const m=a.length,n=b.length,dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++) for(let j=1;j<=n;j++)
+    dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return dp[m][n];
+}
+function looksLikeHeader(line, target){
+  const h = onlyLetters(line);
+  const t = onlyLetters(target);
+  if(!h || !t) return false;
+  if(h.includes(t)) return true;
+  return levenshtein(h, t) <= 2; // tolerate minor OCR noise
+}
+
+/* ---------- Smart section anchors (don’t rely only on headers) ---------- */
+function findSalesStart(lines){
+  // Prefer explicit "SALES" header, but fall back to first sales label
+  let i = lines.findIndex(l => looksLikeHeader(l,'SALES'));
+  if(i>=0){
+    // Avoid "Sales Report" (header is usually just "SALES")
+    const hl = onlyLetters(lines[i]);
+    if(hl !== 'sales') i = -1;
   }
-  return -1;
-}
-const isSalesHdr     = h => /^(sales|saless?)$/.test(h) || h.startsWith('sales');
-const isPaymentsHdr  = h => /payments?/.test(h);
-const isDiscountsHdr = h => /discountsapplied/.test(h) || /discounts/.test(h);
-const isCategoryHdr  = h => /categorysales/.test(h)  || /category/.test(h);
-
-function sliceBetweenFuzzy(lines, startTest, endTest){
-  const s = findAnchorIdx(lines, startTest);
-  const e = findAnchorIdx(lines, endTest);
-  const from = s>=0 ? s : 0;
-  const to = (e>from) ? e : lines.length;
-  return lines.slice(from, to);
+  if(i<0){
+    const keys = ['gross sales','net sales','discounts & comps','discounts and comps'];
+    i = lines.findIndex(l => hasAny(l, keys));
+  }
+  return i>=0? i : 0;
 }
 
-/* ---------- NEW: helpers for wrapped labels ---------- */
+function findPaymentsStart(lines){
+  let i = lines.findIndex(l => looksLikeHeader(l,'PAYMENTS'));
+  if(i<0){
+    // Fallback to the first typical payment line
+    i = lines.findIndex(l => hasAny(l, ['total collected','card ×','card x','gift card','net total']));
+  }
+  return i;
+}
+
+function findDiscountsStart(lines){
+  let i = lines.findIndex(l => looksLikeHeader(l,'DISCOUNTS APPLIED'));
+  if(i<0){
+    i = lines.findIndex(l => /discount/i.test(l));
+  }
+  return i;
+}
+
+function findCategoryStart(lines){
+  let i = lines.findIndex(l => looksLikeHeader(l,'CATEGORY SALES'));
+  if(i<0){
+    i = lines.findIndex(l => /\b(cold|hot\s*drinks?|food|uncategorized)\b/i.test(l));
+  }
+  return i;
+}
+
+function sliceSmart(lines){
+  const sSales = findSalesStart(lines);
+  const sPays  = findPaymentsStart(lines);
+  const sDisc  = findDiscountsStart(lines);
+  const sCat   = findCategoryStart(lines);
+
+  const endSales = (sPays>=0 ? sPays : (sDisc>=0 ? sDisc : (sCat>=0 ? sCat : lines.length)));
+  const endPays  = (sDisc>=0 ? sDisc : (sCat>=0 ? sCat : lines.length));
+  const endDisc  = (sCat>=0 ? sCat : lines.length);
+
+  return {
+    salesSec: lines.slice(Math.max(0,sSales), Math.max(0,endSales)),
+    paySec:   lines.slice((sPays>=0? sPays : Math.max(0,endSales)), Math.max((sPays>=0? sPays : endSales), endPays)),
+    discSec:  lines.slice((sDisc>=0? sDisc : endPays), endDisc),
+    catSec:   lines.slice((sCat>=0? sCat : endDisc))
+  };
+}
+
+/* ---------- Wrapped-label parsing (discounts) ---------- */
 const squash = s => s.toLowerCase().replace(/\s+/g,' ').trim();
 
-/* ---------- UPDATED: discount parsing tolerant to wrapped labels ---------- */
 function parseDiscountsAnywhere(lines){
   const out = {};
   const patterns = {
@@ -208,29 +260,26 @@ function parseDiscountsAnywhere(lines){
   for (let i = 0; i < lines.length; i++) {
     const cur = squash(lines[i]);
 
-    // 1) Single-line match
+    // Single-line
     for (const [key, rx] of Object.entries(patterns)) {
       if (rx.test(cur) && out[key] == null) {
         out[key] = amountNear(lines, i);
       }
     }
 
-    // 2) Two-line wrap: "Paper Money Card" + "Discount × n"
+    // Two-line: current + next
     if (i + 1 < lines.length) {
-      const next = squash(lines[i + 1]);
-      const join = `${cur} ${next}`;           // treat as one logical line
+      const join = `${cur} ${squash(lines[i + 1])}`;
       for (const [key, rx] of Object.entries(patterns)) {
         if (rx.test(join) && out[key] == null) {
-          // Amount is printed on the right of the second line on your receipts
           out[key] = amountNear(lines, i + 1) ?? amountNear(lines, i);
         }
       }
     }
 
-    // 3) Rare wrap where "Discount" is first line, remainder above
+    // Two-line: previous + current
     if (i > 0) {
-      const prev = squash(lines[i - 1]);
-      const joinPrev = `${prev} ${cur}`;
+      const joinPrev = `${squash(lines[i - 1])} ${cur}`;
       for (const [key, rx] of Object.entries(patterns)) {
         if (rx.test(joinPrev) && out[key] == null) {
           out[key] = amountNear(lines, i) ?? amountNear(lines, i - 1);
@@ -260,16 +309,11 @@ function parseCategoriesAnywhere(lines){
   return out;
 }
 
+/* ---------- Main SALES/PAYMENTS parser with smart fallbacks ---------- */
 function parseSalesText(text){
   const lines = textToLines(text);
+  const { salesSec, paySec, discSec, catSec } = sliceSmart(lines);
 
-  // Fuzzy sections
-  const salesSec = sliceBetweenFuzzy(lines, isSalesHdr, isPaymentsHdr);
-  const paySec   = sliceBetweenFuzzy(lines, isPaymentsHdr, isDiscountsHdr);
-  const discSec  = sliceBetweenFuzzy(lines, isDiscountsHdr, isCategoryHdr);
-  const catSec   = sliceBetweenFuzzy(lines, isCategoryHdr, () => false); // until end
-
-  // Keywords
   const K = {
     gross: ['gross sales'],
     items: ['items'],
@@ -281,54 +325,59 @@ function parseSalesText(text){
     tips: ['tips','gratuity'],
     giftSales: ['gift cards sales','gift card sales','gift cards'],
     refunds: ['refunds by amount'],
-    totalSales: ['total'], // only meaningful inside SALES block
+    totalSales: ['total'],
     totalCollected: ['total collected','grand total'],
-    cash: ['cash '], // keep space to avoid "cash sales"
+    cash: ['cash '], // avoid "cash sales"
     card: ['card','credit card charges'],
     giftCard: ['gift card '],
     fees: ['fees'],
     netTotal: ['net total']
   };
 
-  function findIn(section, keys){
+  function findIn(section, keys, fallbackScope=null){
     const idx = section.findIndex(l => hasAny(l, keys));
-    if(idx<0) return null;
-    return amountNear(section, idx);
+    if(idx>=0) return amountNear(section, idx);
+    if(fallbackScope){
+      const j = fallbackScope.findIndex(l => hasAny(l, keys));
+      if(j>=0) return amountNear(fallbackScope, j);
+    }
+    return null;
   }
 
   const out = {
-    // SALES
-    gross_sales:        findIn(salesSec, K.gross),
-    items:              findIn(salesSec, K.items),
-    service_charges:    findIn(salesSec, K.svc),
-    returns:            findIn(salesSec, K.returns),
-    discounts_comps:    findIn(salesSec, K.disc),
-    net_sales:          findIn(salesSec, K.net),
-    tax:                findIn(salesSec, K.tax),
-    tips:               findIn(salesSec.concat(paySec), K.tips),
-    gift_cards_sales:   findIn(salesSec, K.giftSales),
-    refunds_by_amount:  findIn(salesSec, K.refunds),
-    total_sales:        findIn(salesSec, K.totalSales),
+    // SALES (prefer section; fall back to whole doc)
+    gross_sales:        findIn(salesSec, K.gross, lines),
+    items:              findIn(salesSec, K.items, lines),
+    service_charges:    findIn(salesSec, K.svc, lines),
+    returns:            findIn(salesSec, K.returns, lines),
+    discounts_comps:    findIn(salesSec, K.disc, lines),
+    net_sales:          findIn(salesSec, K.net, lines),
+    tax:                findIn(salesSec, K.tax, lines),
+    tips:               findIn([...salesSec, ...paySec], K.tips, lines),
+    gift_cards_sales:   findIn(salesSec, K.giftSales, lines),
+    refunds_by_amount:  findIn(salesSec, K.refunds, lines),
+    total_sales:        findIn(salesSec, K.totalSales, lines),
 
-    // PAYMENTS
-    total_collected:    findIn(paySec, K.totalCollected) ?? findIn(lines, K.totalCollected),
-    cash:               findIn(paySec, K.cash),
-    card:               findIn(paySec, K.card),
-    gift_card:          findIn(paySec, K.giftCard),
-    fees:               findIn(paySec, K.fees),
-    net_total:          findIn(paySec, K.netTotal)
+    // PAYMENTS (prefer section; fall back to lines after sales)
+    total_collected:    findIn(paySec, K.totalCollected, lines),
+    cash:               findIn(paySec, K.cash, lines.slice(findPaymentsStart(lines)>=0?findPaymentsStart(lines):0)),
+    card:               findIn(paySec, K.card, lines.slice(findPaymentsStart(lines)>=0?findPaymentsStart(lines):0)),
+    gift_card:          findIn(paySec, K.giftCard, lines.slice(findPaymentsStart(lines)>=0?findPaymentsStart(lines):0)),
+    fees:               findIn(paySec, K.fees, lines),
+    net_total:          findIn(paySec, K.netTotal, lines)
   };
 
   // Special case: "Card × 107   $1,220.62"
   if(out.card==null){
-    const i = paySec.findIndex(l => /card\s*[x×]/i.test(l));
-    if(i>=0) out.card = amountNear(paySec, i);
+    const src = paySec.length ? paySec : lines.slice(findPaymentsStart(lines)>=0?findPaymentsStart(lines):0);
+    const i = src.findIndex(l => /card\s*[x×]/i.test(l));
+    if(i>=0) out.card = amountNear(src, i);
   }
 
   // DISCOUNTS (robust to header & wrapping)
   Object.assign(out, parseDiscountsAnywhere(discSec.length ? discSec : lines));
 
-  // CATEGORY SALES (tolerate missing header)
+  // CATEGORY SALES (robust to header)
   Object.assign(out, parseCategoriesAnywhere(catSec.length ? catSec : lines));
 
   return out;
@@ -460,19 +509,16 @@ function recalc(prefix){
   const shift = fix2(card + dep);
   setNum(`${prefix}_shift_total`, shift);
 
-  // Use "Expected in Drawer" as ending cash for equations
   const starting = getNum(`${prefix}_starting_cash`) || 0;
   const ending   = getNum(`${prefix}_expected_in_drawer`) || 0;
   const expenses = getNum(`${prefix}_expenses`) || 0;
 
-  // Sales Total = Total Collected − Tips − Gift Card + Starting − Expected − Expenses
   const sales = (getNum(`${prefix}_total_collected`)||0)
     - (getNum(`${prefix}_tips`)||0)
     - (getNum(`${prefix}_gift_card`)||0)
     + starting - ending - expenses;
   setNum(`${prefix}_sales_total`, fix2(sales));
 
-  // Mishandled = Starting − Shift + Expenses
   const mish = starting - shift + expenses;
   setNum(`${prefix}_mishandled_cash`, fix2(mish));
 }
@@ -510,7 +556,7 @@ $('submitBtn').addEventListener('click', async ()=>{
     time_of_entry: $('time').value,
     shift: $('shiftPM').checked ? 'PM' : 'AM',
 
-    // AM summary + drawer + deposit + computed
+    // AM
     am_total_collected:getNum('am_total_collected'),
     am_tips:getNum('am_tips'),
     am_card:getNum('am_card'),
@@ -534,7 +580,7 @@ $('submitBtn').addEventListener('click', async ()=>{
     am_sales_total:getNum('am_sales_total'),
     am_mishandled_cash:getNum('am_mishandled_cash'),
 
-    // PM summary + drawer + deposit + computed
+    // PM
     pm_total_collected:getNum('pm_total_collected'),
     pm_tips:getNum('pm_tips'),
     pm_card:getNum('pm_card'),
