@@ -168,7 +168,7 @@
       </section>
 
       <!-- PM MODE -->
-      <section id="pmMode" aria-label="PM Mode" style="display:none">
+      <section id="pmMode" aria-label="PM Mode" hidden>
         <div class="card">
           <div class="sect-title">
             <h2>PM Sales Reports</h2>
@@ -296,7 +296,7 @@
     </section>
 
     <!-- ===== TIP CLAIM FORM (standalone) ===== -->
-    <section id="tipForm" aria-label="Tip Claim" style="display:none">
+    <section id="tipForm" aria-label="Tip Claim" hidden>
       <div class="card grid grid-2-md">
         <div>
           <label for="tc_firstName">First name</label>
@@ -350,7 +350,7 @@
   <!-- Sticky submit -->
   <div class="sticky" role="region" aria-label="Submit Bar">
     <div class="bar">
-      <span id="saveHint" class="muted">Ready</span>
+      <span id="saveHint" class="muted" aria-live="polite">Ready</span>
       <div class="row">
         <button id="recalcBtn" class="btn btn-ghost" type="button">Recalculate</button>
         <button id="submitBtn" class="btn btn-grad" type="button" disabled>Submit</button>
@@ -359,8 +359,8 @@
   </div>
 
   <!-- OCR library -->
-  <script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
+  <script defer src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
   <!-- App logic -->
-  <script src="app.js"></script>
+  <script defer src="app.js"></script>
 </body>
 </html>
