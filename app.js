@@ -69,17 +69,6 @@ const RECEIPT_SALES = [
   { label:'Net Total', key:'net_total' }
 ];
 
-/* Drawer spec unchanged */
-const RECEIPT_DRAWER = [
-  { label:'Starting Cash', key:'starting_cash' },
-  { label:'Cash Sales', key:'cash_sales' },
-  { label:'Cash Refunds', key:'cash_refunds' },
-  { label:'Paid In/Out', key:'paid_in_out' },
-  { label:'Expected in Drawer', key:'expected_in_drawer' },
-  { label:'Actual in Drawer', key:'actual_in_drawer' },
-  { label:'Difference', key:'difference' }
-];
-
 /* ====================== MIRRORS (with confidence coloring) ====================== */
 function renderMirror(hostId, spec, values){
   const host = $(hostId); if(!host) return;
@@ -116,6 +105,7 @@ async function fileToResizedDataURL(file, maxSide = 2000) {
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently:true });
 
+  // lift faint thermal text
   ctx.filter = 'contrast(135%) brightness(112%)';
   ctx.drawImage(img, 0, 0, w, h);
 
@@ -302,40 +292,6 @@ function parseSalesText(text){
   return out;
 }
 
-/* ====================== DRAWER PARSER (unchanged) ====================== */
-function parseDrawerText(text){
-  const lines = textToLines(text);
-  const K = {
-    start: ['starting cash'],
-    csales: ['cash sales'],
-    cref: ['cash refunds'],
-    inout: ['paid in/out','paid in','paid out'],
-    expected: ['expected in drawer'],
-    actual: ['actual in drawer'],
-    diff: ['difference']
-  };
-  function find(keys){
-    const i = lines.findIndex(l => hasAny(l, keys));
-    return (i>=0) ? amountNear(lines, i) : null;
-  }
-  const payoutLines = [];
-  for(const L of lines){
-    if(/\bpaid\s+(in|out)\b/i.test(L) && moneyRegex.test(L)){
-      payoutLines.push(L.trim());
-    }
-  }
-  return {
-    starting_cash:      find(K.start),
-    cash_sales:         find(K.csales),
-    cash_refunds:       find(K.cref),
-    paid_in_out:        find(K.inout),
-    expected_in_drawer: find(K.expected),
-    actual_in_drawer:   find(K.actual),
-    difference:         find(K.diff),
-    payout_details:     payoutLines.length ? payoutLines : null
-  };
-}
-
 /* ====================== SCAN HANDLERS ====================== */
 // AM Sales
 $('btnScanAmSales').addEventListener('click', async ()=>{
@@ -352,30 +308,6 @@ $('btnScanAmSales').addEventListener('click', async ()=>{
 
   setText('amSalesChip','scanned','badge');
   if ([s.total_collected,s.tips,s.card].some(v=>v==null)) { const d=$('amSalesDetails'); if(d) d.open=true; }
-  recalcAll();
-});
-
-// AM Drawer
-$('btnScanAmDrawer').addEventListener('click', async ()=>{
-  const f=$('fileAmDrawer').files?.[0]; if(!f) return alert('Pick AM Drawer photo');
-  const text = await ocrText(f, $('statusAmDrawer'));
-  const d = parseDrawerText(text);
-
-  renderMirror('amDrawerMirror', RECEIPT_DRAWER, d);
-  setNum('am_starting_cash', d.starting_cash);
-  setNum('am_cash_sales_drawer', d.cash_sales);
-  setNum('am_cash_refunds', d.cash_refunds);
-  setNum('am_paid_in_out', d.paid_in_out);
-  setNum('am_expected_in_drawer', d.expected_in_drawer);
-  setNum('am_actual_in_drawer', d.actual_in_drawer);
-  setNum('am_difference', d.difference);
-
-  if (d.payout_details) {
-    if ($('am_payouts_list')) $('am_payouts_list').innerHTML = d.payout_details.map(t=>`<div class="pill">${t}</div>`).join('');
-    if ($('am_paid_in_out_notes')) $('am_paid_in_out_notes').value = d.payout_details.join('; ');
-  }
-
-  setText('amDrawerChip','scanned','badge');
   recalcAll();
 });
 
@@ -407,30 +339,6 @@ $('btnScanPmSales').addEventListener('click', async ()=>{
   recalcAll();
 });
 
-// PM Drawer
-$('btnScanPmDrawer').addEventListener('click', async ()=>{
-  const f=$('filePmDrawer').files?.[0]; if(!f) return alert('Pick PM Drawer photo');
-  const text = await ocrText(f, $('statusPmDrawer'));
-  const d = parseDrawerText(text);
-
-  renderMirror('pmDrawerMirror', RECEIPT_DRAWER, d);
-  setNum('pm_starting_cash', d.starting_cash);
-  setNum('pm_cash_sales_drawer', d.cash_sales);
-  setNum('pm_cash_refunds', d.cash_refunds);
-  setNum('pm_paid_in_out', d.paid_in_out);
-  setNum('pm_expected_in_drawer', d.expected_in_drawer);
-  setNum('pm_actual_in_drawer', d.actual_in_drawer);
-  setNum('pm_difference', d.difference);
-
-  if (d.payout_details) {
-    if ($('pm_payouts_list')) $('pm_payouts_list').innerHTML = d.payout_details.map(t=>`<div class="pill">${t}</div>`).join('');
-    if ($('pm_paid_in_out_notes')) $('pm_paid_in_out_notes').value = d.payout_details.join('; ');
-  }
-
-  setText('pmDrawerChip','scanned','badge');
-  recalcAll();
-});
-
 /* ====================== COMPUTATIONS ====================== */
 function depTotal(prefix){
   return fix2(
@@ -451,15 +359,17 @@ function recalc(prefix){
   setNum(`${prefix}_shift_total`, shift);
 
   const starting = getNum(`${prefix}_starting_cash`) || 0;
-  const ending   = getNum(`${prefix}_expected_in_drawer`) || 0;
   const expenses = getNum(`${prefix}_expenses`) || 0;
 
+  // With drawer removed, use simplified formula:
+  // Sales Total = Total Collected − Tips − Gift Card + Starting Cash − Expenses
   const sales = (getNum(`${prefix}_total_collected`)||0)
     - (getNum(`${prefix}_tips`)||0)
     - (getNum(`${prefix}_gift_card`)||0)
-    + starting - ending - expenses;
+    + starting - expenses;
   setNum(`${prefix}_sales_total`, fix2(sales));
 
+  // Mishandled = Starting − Shift + Expenses  (unchanged, still useful signal)
   const mish = starting - shift + expenses;
   setNum(`${prefix}_mishandled_cash`, fix2(mish));
 }
@@ -495,20 +405,13 @@ $('submitBtn').addEventListener('click', async ()=>{
     time_of_entry: $('time').value,
     shift: $('shiftPM').checked ? 'PM' : 'AM',
 
-    // AM
+    // AM (no drawer fields anymore)
     am_total_collected:getNum('am_total_collected'),
     am_tips:getNum('am_tips'),
     am_card:getNum('am_card'),
     am_cash:getNum('am_cash'),
     am_gift_card:getNum('am_gift_card'),
     am_starting_cash:getNum('am_starting_cash'),
-    am_cash_sales_drawer:getNum('am_cash_sales_drawer'),
-    am_cash_refunds:getNum('am_cash_refunds'),
-    am_paid_in_out:getNum('am_paid_in_out'),
-    am_expected_in_drawer:getNum('am_expected_in_drawer'),
-    am_actual_in_drawer:getNum('am_actual_in_drawer'),
-    am_difference:getNum('am_difference'),
-    am_paid_in_out_notes: $('am_paid_in_out_notes') ? $('am_paid_in_out_notes').value : null,
     am_expenses:getNum('am_expenses'),
     am_dep_coins:getNum('am_dep_coins'),
     am_dep_1s:getNum('am_dep_1s'),
@@ -522,20 +425,13 @@ $('submitBtn').addEventListener('click', async ()=>{
     am_sales_total:getNum('am_sales_total'),
     am_mishandled_cash:getNum('am_mishandled_cash'),
 
-    // PM
+    // PM (no drawer fields anymore)
     pm_total_collected:getNum('pm_total_collected'),
     pm_tips:getNum('pm_tips'),
     pm_card:getNum('pm_card'),
     pm_cash:getNum('pm_cash'),
     pm_gift_card:getNum('pm_gift_card'),
     pm_starting_cash:getNum('pm_starting_cash'),
-    pm_cash_sales_drawer:getNum('pm_cash_sales_drawer'),
-    pm_cash_refunds:getNum('pm_cash_refunds'),
-    pm_paid_in_out:getNum('pm_paid_in_out'),
-    pm_expected_in_drawer:getNum('pm_expected_in_drawer'),
-    pm_actual_in_drawer:getNum('pm_actual_in_drawer'),
-    pm_difference:getNum('pm_difference'),
-    pm_paid_in_out_notes: $('pm_paid_in_out_notes') ? $('pm_paid_in_out_notes').value : null,
     pm_expenses:getNum('pm_expenses'),
     pm_dep_coins:getNum('pm_dep_coins'),
     pm_dep_1s:getNum('pm_dep_1s'),
