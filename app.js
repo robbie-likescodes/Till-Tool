@@ -44,7 +44,8 @@ function applyShiftUI(){
   applyShiftUI();
 })();
 
-/* ====================== RECEIPT FIELD LISTS (for mirrors) ====================== */
+/* ====================== RECEIPT FIELD LISTS (mirrors) ====================== */
+/* Kept only SALES + PAYMENTS fields */
 const RECEIPT_SALES = [
   // SALES
   { label:'Gross Sales', key:'gross_sales' },
@@ -65,19 +66,10 @@ const RECEIPT_SALES = [
   { label:'Card', key:'card' },
   { label:'Gift Card', key:'gift_card' },
   { label:'Fees', key:'fees' },
-  { label:'Net Total', key:'net_total' },
-
-  // DISCOUNTS APPLIED (trimmed)
-  { label:'Employee Discount', key:'employee_discount' },
-  { label:'Free Drink Discount', key:'free_drink_discount' },
-
-  // CATEGORY SALES
-  { label:'Uncategorized', key:'cat_uncategorized' },
-  { label:'Cold', key:'cat_cold' },
-  { label:'Food', key:'cat_food' },
-  { label:'Hot Drinks', key:'cat_hot_drinks' }
+  { label:'Net Total', key:'net_total' }
 ];
 
+/* Drawer spec unchanged */
 const RECEIPT_DRAWER = [
   { label:'Starting Cash', key:'starting_cash' },
   { label:'Cash Sales', key:'cash_sales' },
@@ -88,17 +80,22 @@ const RECEIPT_DRAWER = [
   { label:'Difference', key:'difference' }
 ];
 
-/* ====================== MIRRORS ====================== */
+/* ====================== MIRRORS (with confidence coloring) ====================== */
 function renderMirror(hostId, spec, values){
   const host = $(hostId); if(!host) return;
+  const status = values?.__status || {}; // {key: 'ok'|'maybe'|'miss'}
   host.innerHTML = '';
   spec.forEach(({label, key})=>{
     const id = `${hostId}_${key}`;
     const v = values?.[key];
+    const cls = status[key] || 'miss';
     host.insertAdjacentHTML('beforeend', `
       <div>
         <label>${label}</label>
-        <div class="field"><input id="${id}" data-key="${key}" type="number" step="0.01" inputmode="decimal" value="${v!=null?(+v).toFixed(2):''}" placeholder="0.00"></div>
+        <div class="field ${cls}">
+          <input id="${id}" data-key="${key}" type="number" step="0.01" inputmode="decimal"
+                 value="${v!=null?(+v).toFixed(2):''}" placeholder="0.00">
+        </div>
       </div>
     `);
   });
@@ -141,7 +138,7 @@ async function ocrText(file, statusEl){
   return data.text || '';
 }
 
-/* ====================== TEXT → LINES + PARSERS ====================== */
+/* ====================== TEXT → LINES + HELPERS ====================== */
 const moneyRegex = /\(?-?\$?\s*\d{1,3}(?:[,\s]?\d{3})*(?:\.\d{2})?\)?/g;
 const normMoney = s => {
   if(!s) return null;
@@ -191,7 +188,7 @@ function amountNear(lines, idx){
   return v ?? null;
 }
 
-/* ---------- Fuzzy header helpers ---------- */
+/* ---------- Section anchors ---------- */
 function levenshtein(a,b){
   const m=a.length,n=b.length,dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
   for(let i=0;i<=m;i++) dp[i][0]=i;
@@ -207,11 +204,9 @@ function looksLikeHeader(line, target){
   if(h.includes(t)) return true;
   return levenshtein(h, t) <= 2;
 }
-
-/* ---------- Smart section anchors ---------- */
 function findSalesStart(lines){
   let i = lines.findIndex(l => looksLikeHeader(l,'SALES'));
-  if(i>=0 && onlyLetters(lines[i])!=='sales') i = -1;
+  if(i>=0 && onlyLetters(lines[i])!=='sales') i = -1; // avoid "Sales Report"
   if(i<0){
     const keys = ['gross sales','net sales','discounts & comps','discounts and comps'];
     i = lines.findIndex(l => hasAny(l, keys));
@@ -223,147 +218,122 @@ function findPaymentsStart(lines){
   if(i<0) i = lines.findIndex(l => hasAny(l, ['total collected','card ×','card x','gift card','net total']));
   return i;
 }
-function findDiscountsStart(lines){
-  let i = lines.findIndex(l => looksLikeHeader(l,'DISCOUNTS APPLIED'));
-  if(i<0) i = lines.findIndex(l => /discount/i.test(l));
-  return i;
-}
-function findCategoryStart(lines){
-  let i = lines.findIndex(l => looksLikeHeader(l,'CATEGORY SALES'));
-  if(i<0) i = lines.findIndex(l => /\b(cold|hot\s*drinks?|food|uncategorized)\b/i.test(l));
-  return i;
-}
-function sliceSmart(lines){
+
+/* ---------- SALES/PAYMENTS parser with confidence ---------- */
+function parseSalesText(text){
+  const lines = textToLines(text);
+
   const sSales = findSalesStart(lines);
   const sPays  = findPaymentsStart(lines);
-  const sDisc  = findDiscountsStart(lines);
-  const sCat   = findCategoryStart(lines);
 
-  const endSales = (sPays>=0 ? sPays : (sDisc>=0 ? sDisc : (sCat>=0 ? sCat : lines.length)));
-  const endPays  = (sDisc>=0 ? sDisc : (sCat>=0 ? sCat : lines.length));
-  const endDisc  = (sCat>=0 ? sCat : lines.length);
+  const salesSec = (sSales>=0) ? lines.slice(sSales, Math.max(0, sPays>=0 ? sPays : lines.length)) : [];
+  const paySec   = (sPays>=0) ? lines.slice(sPays) : [];
 
-  return {
-    salesSec: lines.slice(Math.max(0,sSales), Math.max(0,endSales)),
-    paySec:   lines.slice((sPays>=0? sPays : Math.max(0,endSales)), Math.max((sPays>=0? sPays : endSales), endPays)),
-    discSec:  lines.slice((sDisc>=0? sDisc : endPays), endDisc),
-    catSec:   lines.slice((sCat>=0? sCat : endDisc))
+  const K = {
+    // Sales
+    gross: ['gross sales'],
+    items: ['items'],
+    svc: ['service charges'],
+    returns: ['returns'],
+    disc: ['discounts & comps','discounts and comps','discounts'],
+    net: ['net sales'],
+    tax: ['tax'],
+    tips: ['tips','gratuity'],
+    giftSales: ['gift cards sales','gift card sales','gift cards'],
+    refunds: ['refunds by amount'],
+    totalSales: ['total'],
+    // Payments
+    totalCollected: ['total collected','grand total'],
+    cash: ['cash '], // avoid "cash sales"
+    card: ['card','credit card charges'],
+    giftCard: ['gift card '],
+    fees: ['fees'],
+    netTotal: ['net total']
   };
-}
 
-/* ---------- FUZZY TOKEN HELPERS ---------- */
-const squash = s => s.toLowerCase().replace(/\s+/g,' ').trim();
-function tokens(s){ return squash(s).replace(/[^a-z ]/g,'').split(' ').filter(Boolean); }
-function wordLike(a,b){
-  const d = levenshtein(a,b);
-  if (a.length >= 6) return d <= 2;
-  if (a.length >= 4) return d <= 1;
-  return d === 0;
-}
-function containsAllTokens(hay, req){
-  const H = tokens(hay);
-  return req.every(t => H.some(w => wordLike(t, w)));
-}
+  const out = { __status:{} };
 
-/* ---------- Discounts (trimmed: removed Paper Money Card + Pay Difference) ---------- */
-function parseDiscountsAnywhere(lines){
-  const out = {};
-  const defs = [
-    { key:'employee_discount',   req:['employee','discount'] },
-    { key:'free_drink_discount', req:['free','drink','discount'] }
-  ];
-  for (let i=0;i<lines.length;i++){
-    const cur=lines[i];
-    const windows=[{text:cur},{text:(i+1<lines.length?`${cur} ${lines[i+1]}`:cur)},{text:(i>0?`${lines[i-1]} ${cur}`:cur)}];
-    for(const {key,req} of defs){
-      if(out[key]!=null) continue;
-      if(windows.some(w=>containsAllTokens(w.text,req))){
-        out[key]=amountNear(lines,i)??null;
-      }
-    }
+  function setField(key, val, status){
+    out[key] = val ?? null;
+    out.__status[key] = (val==null ? 'miss' : status);
   }
-  return out;
-}
 
-/* ---------- Categories ---------- */
-function parseCategoriesAnywhere(lines){
-  const out = {};
-  const map = {
-    cat_cold:/\bcold\b/i,
-    cat_food:/\bfood\b/i,
-    cat_hot_drinks:/\bhot\s*drinks?\b/i,
-    cat_uncategorized:/\buncategorized\b/i
-  };
-  lines.forEach((L,idx)=>{
-    for(const [key,rx] of Object.entries(map)){
-      if(rx.test(L)){
-        const v=amountNear(lines,idx);
-        if(v!=null) out[key]=v;
-      }
-    }
-  });
-  return out;
-}
-
-/* ---------- Main SALES/PAYMENTS parser ---------- */
-function parseSalesText(text){
-  const lines=textToLines(text);
-  const {salesSec,paySec,discSec,catSec}=sliceSmart(lines);
-  const K={
-    gross:['gross sales'],
-    items:['items'],
-    svc:['service charges'],
-    returns:['returns'],
-    disc:['discounts & comps','discounts and comps','discounts'],
-    net:['net sales'],
-    tax:['tax'],
-    tips:['tips','gratuity'],
-    giftSales:['gift cards sales','gift card sales','gift cards'],
-    refunds:['refunds by amount'],
-    totalSales:['total'],
-    totalCollected:['total collected','grand total'],
-    cash:['cash '],
-    card:['card','credit card charges'],
-    giftCard:['gift card '],
-    fees:['fees'],
-    netTotal:['net total']
-  };
-  function findIn(section,keys,fallbackScope=null){
-    const idx=section.findIndex(l=>hasAny(l,keys));
-    if(idx>=0) return amountNear(section,idx);
+  function findIn(section, keys, fallbackScope=null){
+    const idx = section.findIndex(l => hasAny(l, keys));
+    if(idx>=0) return { val: amountNear(section, idx), status:'ok' };
     if(fallbackScope){
-      const j=fallbackScope.findIndex(l=>hasAny(l,keys));
-      if(j>=0) return amountNear(fallbackScope,j);
+      const j = fallbackScope.findIndex(l => hasAny(l, keys));
+      if(j>=0) return { val: amountNear(fallbackScope, j), status:'maybe' };
     }
-    return null;
+    return { val:null, status:'miss' };
   }
-  const out={
-    gross_sales:findIn(salesSec,K.gross,lines),
-    items:findIn(salesSec,K.items,lines),
-    service_charges:findIn(salesSec,K.svc,lines),
-    returns:findIn(salesSec,K.returns,lines),
-    discounts_comps:findIn(salesSec,K.disc,lines),
-    net_sales:findIn(salesSec,K.net,lines),
-    tax:findIn(salesSec,K.tax,lines),
-    tips:findIn([...salesSec,...paySec],K.tips,lines),
-    gift_cards_sales:findIn(salesSec,K.giftSales,lines),
-    refunds_by_amount:findIn(salesSec,K.refunds,lines),
-    total_sales:findIn(salesSec,K.totalSales,lines),
-    total_collected:findIn(paySec,K.totalCollected,lines),
-    cash:findIn(paySec,K.cash,lines),
-    card:findIn(paySec,K.card,lines),
-    gift_card:findIn(paySec,K.giftCard,lines),
-    fees:findIn(paySec,K.fees,lines),
-    net_total:findIn(paySec,K.netTotal,lines)
-  };
+
+  // SALES
+  let r;
+  r = findIn(salesSec, K.gross, lines);        setField('gross_sales', r.val, r.status);
+  r = findIn(salesSec, K.items, lines);        setField('items', r.val, r.status);
+  r = findIn(salesSec, K.svc, lines);          setField('service_charges', r.val, r.status);
+  r = findIn(salesSec, K.returns, lines);      setField('returns', r.val, r.status);
+  r = findIn(salesSec, K.disc, lines);         setField('discounts_comps', r.val, r.status);
+  r = findIn(salesSec, K.net, lines);          setField('net_sales', r.val, r.status);
+  r = findIn(salesSec, K.tax, lines);          setField('tax', r.val, r.status);
+  r = findIn([...salesSec, ...paySec], K.tips, lines); setField('tips', r.val, r.status);
+  r = findIn(salesSec, K.giftSales, lines);    setField('gift_cards_sales', r.val, r.status);
+  r = findIn(salesSec, K.refunds, lines);      setField('refunds_by_amount', r.val, r.status);
+  r = findIn(salesSec, K.totalSales, lines);   setField('total_sales', r.val, r.status);
+
+  // PAYMENTS
+  r = findIn(paySec, K.totalCollected, lines); setField('total_collected', r.val, r.status);
+  r = findIn(paySec, K.cash, lines.slice(sPays>=0?sPays:0)); setField('cash', r.val, r.status);
+  r = findIn(paySec, K.card, lines.slice(sPays>=0?sPays:0)); setField('card', r.val, r.status);
+  r = findIn(paySec, K.giftCard, lines.slice(sPays>=0?sPays:0)); setField('gift_card', r.val, r.status);
+  r = findIn(paySec, K.fees, lines);           setField('fees', r.val, r.status);
+  r = findIn(paySec, K.netTotal, lines);       setField('net_total', r.val, r.status);
+
+  // Heuristic for "Card × 107  $1,220.62"
   if(out.card==null){
-    const src=paySec.length?paySec:lines;
-    const i=src.findIndex(l=>/card\s*[x×]/i.test(l));
-    if(i>=0) out.card=amountNear(src,i);
+    const src = paySec.length ? paySec : lines.slice(sPays>=0?sPays:0);
+    const i = src.findIndex(l => /card\s*[x×]/i.test(l));
+    if(i>=0){
+      setField('card', amountNear(src, i), 'maybe');
+    }
   }
-  Object.assign(out, parseDiscountsAnywhere(discSec.length?discSec:lines));
-  Object.assign(out, parseCategoriesAnywhere(catSec.length?catSec:lines));
+
   return out;
+}
+
+/* ====================== DRAWER PARSER (unchanged) ====================== */
+function parseDrawerText(text){
+  const lines = textToLines(text);
+  const K = {
+    start: ['starting cash'],
+    csales: ['cash sales'],
+    cref: ['cash refunds'],
+    inout: ['paid in/out','paid in','paid out'],
+    expected: ['expected in drawer'],
+    actual: ['actual in drawer'],
+    diff: ['difference']
+  };
+  function find(keys){
+    const i = lines.findIndex(l => hasAny(l, keys));
+    return (i>=0) ? amountNear(lines, i) : null;
+  }
+  const payoutLines = [];
+  for(const L of lines){
+    if(/\bpaid\s+(in|out)\b/i.test(L) && moneyRegex.test(L)){
+      payoutLines.push(L.trim());
+    }
+  }
+  return {
+    starting_cash:      find(K.start),
+    cash_sales:         find(K.csales),
+    cash_refunds:       find(K.cref),
+    paid_in_out:        find(K.inout),
+    expected_in_drawer: find(K.expected),
+    actual_in_drawer:   find(K.actual),
+    difference:         find(K.diff),
+    payout_details:     payoutLines.length ? payoutLines : null
+  };
 }
 
 /* ====================== SCAN HANDLERS ====================== */
@@ -406,7 +376,6 @@ $('btnScanAmDrawer').addEventListener('click', async ()=>{
   }
 
   setText('amDrawerChip','scanned','badge');
-  if ([d.starting_cash,d.expected_in_drawer].some(v=>v==null)) { const de=$('amDrawerDetails'); if(de) de.open=true; }
   recalcAll();
 });
 
@@ -459,7 +428,6 @@ $('btnScanPmDrawer').addEventListener('click', async ()=>{
   }
 
   setText('pmDrawerChip','scanned','badge');
-  if ([d.starting_cash,d.expected_in_drawer].some(v=>v==null)) { const de=$('pmDrawerDetails'); if(de) de.open=true; }
   recalcAll();
 });
 
@@ -475,12 +443,10 @@ function depTotal(prefix){
     (getNum(`${prefix}_dep_100s`)||0)
   );
 }
-
 function recalc(prefix){
   const card = getNum(`${prefix}_card`)||0;
   const dep  = depTotal(prefix);
   setNum(`${prefix}_cash_deposit_total`, dep);
-
   const shift = fix2(card + dep);
   setNum(`${prefix}_shift_total`, shift);
 
@@ -497,7 +463,6 @@ function recalc(prefix){
   const mish = starting - shift + expenses;
   setNum(`${prefix}_mishandled_cash`, fix2(mish));
 }
-
 function recalcAll(){ recalc('am'); recalc('pm'); gateSubmit(); }
 
 qsa('input').forEach(el=>{
