@@ -9,6 +9,7 @@
   --grad-a:#7C3AED;   /* violet */
   --grad-b:#06B6D4;   /* teal */
 
+  /* Confidence palettes */
   --ok-bg:#EEF9F2;
   --ok-bd:#BFE5C8;
   --ok-tx:#065F46;
@@ -16,6 +17,11 @@
   --warn-bg:#FFF7E6;
   --warn-bd:#FFE3A3;
   --warn-tx:#7C4A03;
+
+  /* NEW: miss (error) */
+  --miss-bg:#FFEAEA;
+  --miss-bd:#F3B4B4;
+  --miss-tx:#7C1D1D;
 
   --radius:14px;
   --shadow:0 8px 24px rgba(124,58,237,.25);
@@ -29,12 +35,19 @@
     --muted:#A1A1AA;
     --line:#1F2937;
     --card:#0F172A;
+
     --ok-bg:#063A2F;
     --ok-bd:#0B5C45;
     --ok-tx:#C8F5E6;
+
     --warn-bg:#3C2E09;
     --warn-bd:#6A4B0B;
     --warn-tx:#FFE2A3;
+
+    /* NEW: miss (error) dark */
+    --miss-bg:#3B0E0E;
+    --miss-bd:#5B1B1B;
+    --miss-tx:#FFD2D2;
   }
 }
 
@@ -94,6 +107,7 @@ label{display:block;font-size:.92rem;margin:0 0 6px}
   border-radius:12px;
   padding:8px 10px;
   background:#fff;
+  transition:border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
 }
 input[type="text"],
 input[type="number"],
@@ -103,6 +117,26 @@ input[type="date"]{
 }
 input::placeholder{color:#9CA3AF}
 input[readonly]{background:#F7F7F7; cursor:not-allowed}
+
+/* NEW: confidence coloring for Review mirrors */
+.field.ok{
+  border-color:var(--ok-bd);
+  background:var(--ok-bg);
+}
+.field.ok input{ color:var(--ok-tx); }
+
+.field.maybe{
+  border-color:var(--warn-bd);
+  background:var(--warn-bg);
+}
+.field.maybe input{ color:var(--warn-tx); }
+
+.field.miss{
+  border-color:var(--miss-bd);
+  background:var(--miss-bg);
+  box-shadow:0 0 0 2px color-mix(in oklab, var(--miss-bd) 35%, transparent);
+}
+.field.miss input{ color:var(--miss-tx); }
 
 /* quantity stepper group */
 .qt{display:flex;gap:6px;align-items:center}
@@ -181,4 +215,3 @@ input[readonly]{background:#F7F7F7; cursor:not-allowed}
 .mt-12{margin-top:12px}
 .mt-16{margin-top:16px}
 .p-0{padding:0}
-
