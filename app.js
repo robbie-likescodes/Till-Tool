@@ -10,6 +10,7 @@ const fix2 = n => Number(Number(n||0).toFixed(2));
 const setNum = (id, v) => { const el=$(id); if(!el) return; el.value = v==null? '' : (+v).toFixed(2); };
 const getNum = id => money($(id)?.value);
 const setText = (id, txt, cls) => { const el=$(id); if(!el) return; if(cls!=null) el.className=cls; el.textContent=txt; };
+const show = (id, on) => { const el=$(id); if(!el) return; el.hidden = !on; };
 
 /* ---------- Toasts ---------- */
 let toastTimer=null;
@@ -30,13 +31,8 @@ function toast(msg){
 /* ====================== FORM SWITCHER (Which form?) ====================== */
 function applyFormChoice(){
   const salesOn = $('formSales')?.checked;
-  if (salesOn){
-    $('salesForm').style.display = '';
-    $('tipForm').style.display = 'none';
-  }else{
-    $('salesForm').style.display = 'none';
-    $('tipForm').style.display = '';
-  }
+  show('salesForm', !!salesOn);
+  show('tipForm', !salesOn);
   gateSubmit();
 }
 ['formSales','formTips'].forEach(id => $(id)?.addEventListener('change', applyFormChoice));
@@ -45,16 +41,16 @@ applyFormChoice();
 /* ====================== SHIFT AUTO / TOGGLE ====================== */
 function isPM(t){ const [h,m]=(t||'').split(':').map(Number); return h>15||(h===15&&(m||0)>=0); }
 function applyShiftUI(){
-  const pm = $('shiftPM').checked;
-  if ($('amMode')) $('amMode').style.display = pm? 'none' : 'block';
-  if ($('pmMode')) $('pmMode').style.display = pm? 'block' : 'none';
+  const pm = $('shiftPM')?.checked;
+  show('amMode', !pm);
+  show('pmMode', !!pm);
   gateSubmit();
 }
 
 (function initHeader(){
   const now = new Date();
-  $('date').value = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
-  $('time').value = now.toTimeString().slice(0,5);
+  $('date') && ($('date').value = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10));
+  $('time') && ($('time').value = now.toTimeString().slice(0,5));
 
   ['firstName','lastName','store'].forEach(k=>{
     const el=$(k); if(!el) return;
@@ -63,9 +59,9 @@ function applyShiftUI(){
     el.addEventListener('input',()=>localStorage.setItem('dd_'+k, el.value));
   });
 
-  const pm = isPM($('time').value);
-  if ($('shiftPM')) $('shiftPM').checked = pm;
-  if ($('shiftAM')) $('shiftAM').checked = !pm;
+  const pmGuess = isPM($('time')?.value);
+  if ($('shiftPM')) $('shiftPM').checked = pmGuess;
+  if ($('shiftAM')) $('shiftAM').checked = !pmGuess;
 
   $('time')?.addEventListener('input', ()=>{
     const pmNow = isPM($('time').value);
@@ -522,7 +518,7 @@ function gateSubmit(){
   const okBasicsTips  = $('tc_firstName')?.value?.trim() && $('tc_lastName')?.value?.trim() && $('tc_store')?.value && $('tc_date')?.value && $('tc_time')?.value;
 
   if (salesFormOn){
-    const isPm = $('shiftPM').checked;
+    const isPm = $('shiftPM')?.checked;
     const scansOk = isPm ? (scanned.pmAm && scanned.pmFull) : scanned.am;
     const tipReqOk = money($('sales_tc_cc_tips')?.value)!=null && money($('sales_tc_cash_tips')?.value)!=null;
 
@@ -575,7 +571,7 @@ $('submitBtn')?.addEventListener('click', async ()=>{
   }
 
   // SALES FORM submit: enforce scan gating & tip claim filled
-  const isPm = $('shiftPM').checked;
+  const isPm = $('shiftPM')?.checked;
   if (isPm && !(scanned.pmAm && scanned.pmFull)) { alert('Please scan AM and Full Day receipts first.'); return; }
   if (!isPm && !scanned.am) { alert('Please scan the AM Sales receipt first.'); return; }
   if (money($('sales_tc_cc_tips')?.value)==null || money($('sales_tc_cash_tips')?.value)==null){
