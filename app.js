@@ -46,8 +46,8 @@ applyFormChoice();
 function isPM(t){ const [h,m]=(t||'').split(':').map(Number); return h>15||(h===15&&(m||0)>=0); }
 function applyShiftUI(){
   const pm = $('shiftPM').checked;
-  $('amMode').style.display = pm? 'none' : '';
-  $('pmMode').style.display = pm? '' : 'none';
+  if ($('amMode')) $('amMode').style.display = pm? 'none' : 'block';
+  if ($('pmMode')) $('pmMode').style.display = pm? 'block' : 'none';
   gateSubmit();
 }
 
@@ -64,16 +64,17 @@ function applyShiftUI(){
   });
 
   const pm = isPM($('time').value);
-  $('shiftPM').checked = pm; $('shiftAM').checked = !pm;
+  if ($('shiftPM')) $('shiftPM').checked = pm;
+  if ($('shiftAM')) $('shiftAM').checked = !pm;
 
-  $('time').addEventListener('input', ()=>{
+  $('time')?.addEventListener('input', ()=>{
     const pmNow = isPM($('time').value);
-    $('shiftPM').checked = pmNow;
-    $('shiftAM').checked = !pmNow;
+    if ($('shiftPM')) $('shiftPM').checked = pmNow;
+    if ($('shiftAM')) $('shiftAM').checked = !pmNow;
     applyShiftUI();
   });
-  $('shiftAM').addEventListener('change', applyShiftUI);
-  $('shiftPM').addEventListener('change', applyShiftUI);
+  $('shiftAM')?.addEventListener('change', applyShiftUI);
+  $('shiftPM')?.addEventListener('change', applyShiftUI);
   applyShiftUI();
 })();
 
@@ -92,7 +93,6 @@ const RECEIPT_SALES = [
   { label:'Gift Cards Sales', key:'gift_cards_sales' },
   { label:'Refunds by Amount', key:'refunds_by_amount' },
   { label:'Total', key:'total_sales' },
-
   // PAYMENTS
   { label:'Total Collected', key:'total_collected' },
   { label:'Cash', key:'cash' },
@@ -110,7 +110,7 @@ function renderMirror(hostId, spec, values){
   spec.forEach(({label, key})=>{
     const id = `${hostId}_${key}`;
     const v = values?.[key];
-    const cls = status[key] || 'miss'; // 'ok' green, 'maybe' yellow, 'miss' red (CSS)
+    const cls = status[key] || 'miss'; // 'ok' green, 'maybe' yellow, 'miss' red
     host.insertAdjacentHTML('beforeend', `
       <div>
         <label>${label}</label>
@@ -137,8 +137,6 @@ async function fileToResizedDataURL(file, maxSide = 2000) {
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently:true });
-
-  // Enhance thermal paper contrast
   ctx.filter = 'contrast(135%) brightness(112%)';
   ctx.drawImage(img, 0, 0, w, h);
 
@@ -249,8 +247,10 @@ function parseSalesText(text){
   const sSales = findSalesStart(lines);
   const sPays  = findPaymentsStart(lines);
 
-  const salesSec = (sSales>=0) ? lines.slice(Math.max(0,sSales), Math.max(0, sPays>=0 ? sPays : lines.length)) : [];
+  const salesSec = (sSales>=0) ? lines.slice(Math.max(0,salesStartClamp(sSales)), Math.max(0, sPays>=0 ? sPays : lines.length)) : [];
   const paySec   = (sPays>=0) ? lines.slice(sPays) : [];
+
+  function salesStartClamp(i){ return Math.max(0,i); }
 
   const K = {
     // Sales
@@ -358,29 +358,27 @@ $('btnScanPmAmSales')?.addEventListener('click', async ()=>{
   renderMirror('pmAmSalesMirror', RECEIPT_SALES, pmAmParsed);
   setText('pmSalesChip','AM scanned','badge');
   scanned.pmAm = true; scanned.am = true;
-  computePMDerived(); // compute if full day already present
+  computePMDerived();
 });
 
-// PM: Scan Full Day (uses ids from HTML: filePmSales / btnScanPmSales / statusPmSales)
+// PM: Scan Full Day (HTML ids: filePmSales / btnScanPmSales / statusPmSales)
 $('btnScanPmSales')?.addEventListener('click', async ()=>{
   const f=$('filePmSales').files?.[0]; if(!f) return alert('Pick Full Day Sales photo');
   const text = await ocrText(f, $('statusPmSales'));
   pmFullParsed = parseSalesText(text);
-  // We don't have a separate "full day mirror" container; keep it for review in pmSalesMirror when derived requested
   setText('pmSalesChip','Full Day scanned','badge');
   scanned.pmFull = true;
   computePMDerived();
 });
 
-// PM: Review AM (open details)
+// PM: Review AM
 $('btnReviewPmAm')?.addEventListener('click', ()=>{
   const d=$('pmAmMirrorDetails'); if(d) d.open = true;
 });
 
-// PM: Review Full Day (just open the "full day" review panel; we’ll render into pmSalesMirror temporarily)
+// PM: Review Full Day
 $('btnReviewPmSales')?.addEventListener('click', ()=>{
   if(!pmFullParsed){ alert('Scan the Full Day receipt first.'); return; }
-  // Show full-day values in the pmSalesMirror for inspection
   renderMirror('pmSalesMirror', RECEIPT_SALES, pmFullParsed);
   const d=$('pmSalesDetails'); if(d) d.open = true;
 });
@@ -394,38 +392,29 @@ $('btnReviewPmComputed')?.addEventListener('click', ()=>{
 
 function computePMDerived(){
   if(!pmAmParsed || !pmFullParsed) return;
-
-  // Difference helper
   const diff = (a,b) => {
     const an = money(a), bn = money(b);
     if(an==null || bn==null) return null;
     return fix2(an - bn);
   };
-
   pmDerived = { __status:{} };
   const keys = [
     'gross_sales','items','service_charges','returns','discounts_comps','net_sales','tax',
     'tips','gift_cards_sales','refunds_by_amount','total_sales',
     'total_collected','cash','card','gift_card','fees','net_total'
   ];
-
   keys.forEach(k=>{
     const v = diff(pmFullParsed[k], pmAmParsed[k]);
     pmDerived[k] = v;
     const okBoth = (pmFullParsed.__status?.[k]==='ok' && pmAmParsed.__status?.[k]==='ok');
     pmDerived.__status[k] = (v==null ? 'miss' : (okBoth ? 'ok' : 'maybe'));
   });
-
-  // Render the *PM* mirror with derived values
   renderMirror('pmSalesMirror', RECEIPT_SALES, pmDerived);
-
-  // Fill preview fields for PM (Total Collected / Tips etc.)
   setNum('pm_total_collected', pmDerived.total_collected);
   setNum('pm_tips', pmDerived.tips);
   setNum('pm_card', pmDerived.card);
   setNum('pm_cash', pmDerived.cash);
   setNum('pm_gift_card', pmDerived.gift_card ?? pmDerived.gift_cards_sales);
-
   recalcAll();
 }
 
@@ -451,7 +440,7 @@ function updateDeposit(prefix){
   if ($(prefix+'_cash_deposit_total')) setNum(prefix+'_cash_deposit_total', cash);
 }
 
-/* Toast when starting to type in TILL */
+/* Toast when starting to type in TILL + live totals */
 ['am','pm'].forEach(p=>{
   ['till_coins','till_1s','till_5s','till_10s','till_20s','till_50s','till_100s'].forEach(suf=>{
     const id = `${p}_${suf}`;
@@ -481,7 +470,7 @@ function recalc(prefix){
   // gift_card is negative on receipt; formula uses + (-gift_card)
   const giftCard = getNum(`${prefix}_gift_card`) || 0;
 
-  // Daily Sales (both AM and PM share the same pattern; PM inputs should already be Full−AM)
+  // Daily Sales (PM inputs are Full−AM via derived values)
   const dailySales = fix2(totalCollected - tips + (-giftCard) + starting - tillEnd);
   setNum(`${prefix}_sales_total`, dailySales);
 
@@ -497,11 +486,10 @@ function recalc(prefix){
   }
   setNum(`${prefix}_mishandled_cash`, mish);
 
-  // Shift "total" (Card + cash deposit) for convenience
+  // Shift "total" (Card + cash deposit)
   const shift = fix2(card + depCash);
   setNum(`${prefix}_shift_total`, shift);
 
-  // Warn if |mishandled| > 10
   if (Math.abs(mish||0) > 10) {
     toast('Please double-check your numbers. If you don’t see any errors, notify the office ASAP.');
   }
@@ -530,16 +518,12 @@ function gateSubmit(){
   const salesFormOn = $('formSales')?.checked;
   const tipsFormOn  = $('formTips')?.checked;
 
-  // Basic identity for whichever form is visible
   const okBasicsSales = $('firstName')?.value.trim() && $('lastName')?.value.trim() && $('store')?.value && $('date')?.value && $('time')?.value;
   const okBasicsTips  = $('tc_firstName')?.value?.trim() && $('tc_lastName')?.value?.trim() && $('tc_store')?.value && $('tc_date')?.value && $('tc_time')?.value;
 
   if (salesFormOn){
-    // Require receipts: AM requires AM; PM requires AM + Full Day
     const isPm = $('shiftPM').checked;
     const scansOk = isPm ? (scanned.pmAm && scanned.pmFull) : scanned.am;
-
-    // Tip claim (inside sales) must be filled
     const tipReqOk = money($('sales_tc_cc_tips')?.value)!=null && money($('sales_tc_cash_tips')?.value)!=null;
 
     const ready = !!(okBasicsSales && scansOk && tipReqOk);
@@ -553,7 +537,6 @@ function gateSubmit(){
       ready ? '' : 'muted'
     );
   } else if (tipsFormOn){
-    // Standalone Tip Claim: require both tip amounts
     const tipOk = money($('tc_cc_tips')?.value)!=null && money($('tc_cash_tips')?.value)!=null;
     const ready = !!(okBasicsTips && tipOk);
     $('submitBtn').disabled = !ready;
@@ -570,7 +553,6 @@ $('submitBtn')?.addEventListener('click', async ()=>{
   const tipsFormOn  = $('formTips')?.checked;
 
   if (tipsFormOn){
-    // Standalone Tip Claim payload
     const payload = {
       source: 'Tip Claim',
       submission_id: (crypto.randomUUID?crypto.randomUUID():'web-'+Date.now()),
@@ -610,14 +592,14 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     time_of_entry: $('time').value,
     shift: isPm ? 'PM' : 'AM',
 
-    // AM preview values (from scan or manual corrections)
+    // AM preview values
     am_total_collected:getNum('am_total_collected'),
     am_tips:getNum('am_tips'),
     am_card:getNum('am_card'),
     am_cash:getNum('am_cash'),
     am_gift_card:getNum('am_gift_card'),
 
-    // AM extras
+    // AM till/extras
     am_starting_cash:getNum('am_starting_cash'),
     am_till_coins:getNum('am_till_coins'),
     am_till_1s:getNum('am_till_1s'),
@@ -629,7 +611,7 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     am_till_total:getNum('am_till_total'),
     am_expenses:getNum('am_expenses'),
 
-    // AM deposit (cash denominations)
+    // AM deposit
     am_dep_coins:getNum('am_dep_coins'),
     am_dep_1s:getNum('am_dep_1s'),
     am_dep_5s:getNum('am_dep_5s'),
@@ -649,7 +631,7 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     pm_cash:getNum('pm_cash'),
     pm_gift_card:getNum('pm_gift_card'),
 
-    // PM extras
+    // PM till/extras
     pm_starting_cash:getNum('pm_starting_cash'),
     pm_till_coins:getNum('pm_till_coins'),
     pm_till_1s:getNum('pm_till_1s'),
@@ -661,7 +643,7 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     pm_till_total:getNum('pm_till_total'),
     pm_expenses:getNum('pm_expenses'),
 
-    // PM deposit (cash denominations)
+    // PM deposit
     pm_dep_coins:getNum('pm_dep_coins'),
     pm_dep_1s:getNum('pm_dep_1s'),
     pm_dep_5s:getNum('pm_dep_5s'),
