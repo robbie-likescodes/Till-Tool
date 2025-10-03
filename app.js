@@ -1,5 +1,5 @@
 /* ====================== CONFIG ====================== */
-const ENDPOINT = 'https://script.google.com/macros/s/AKfycbz8fXRp4uuYvEV4qWCtW3XxN5wiEIjtacv7BVhFIMEgRLztTOUfpVlGO-3_F2as5RmXHg/exec';
+const ENDPOINT = 'https://script.google.com/macros/s/AKfycby1cmY6Ck8ci0RDozBgb_eAsZqq3RAGJW61irUXfvD8JRnLcZIc1Fv-05-wVaLIs-3y/exec';
 const MATH_EPS = 0.02;
 
 /* ====================== DOM HELPERS ====================== */
@@ -527,6 +527,21 @@ $('submitBtn')?.addEventListener('click', async ()=>{
   const salesFormOn = $('formSales')?.checked;
   const tipsFormOn  = $('formTips')?.checked;
 
+  // helper: send as x-www-form-urlencoded (avoids preflight)
+  const sendForm = async (payload) => {
+    const params = new URLSearchParams();
+    for (const [k,v] of Object.entries(payload)) {
+      if (v == null || v === '') continue;
+      params.append(k, String(v));
+    }
+    const r = await fetch(ENDPOINT, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+    return r.json();
+  };
+
   if (tipsFormOn){
     const payload = {
       source: 'Tip Claim',
@@ -541,8 +556,7 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     };
     setText('saveHint','Saving…','muted');
     try{
-      const r = await fetch(ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-      const js = await r.json();
+      const js = await sendForm(payload);
       if(js.ok){ toast('Please initial chore charts and send photos in GroupMe'); }
       setText('saveHint', js.ok ? 'Saved ✓' : ('Error: '+(js.error||'unknown')));
     }catch(e){ setText('saveHint','Network error','muted'); }
@@ -566,21 +580,16 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     time_of_entry: $('time').value,
     shift: isPm ? 'PM' : 'AM',
 
+    // --- AM mapped to server ---
     am_total_collected:getNum('am_total_collected'),
     am_tips:getNum('am_tips'),
-    am_card:getNum('am_card'),
-    am_cash:getNum('am_cash'),
-    am_gift_card:getNum('am_gift_card'),
+    am_card_collected:getNum('am_card'),
+    am_cash_sales:getNum('am_cash'),
+    am_gift_card_sales:getNum('am_gift_card'),
 
     am_starting_cash:getNum('am_starting_cash'),
-    am_till_coins:getNum('am_till_coins'),
-    am_till_1s:getNum('am_till_1s'),
-    am_till_5s:getNum('am_till_5s'),
-    am_till_10s:getNum('am_till_10s'),
-    am_till_20s:getNum('am_till_20s'),
-    am_till_50s:getNum('am_till_50s'),
-    am_till_100s:getNum('am_till_100s'),
-    am_till_total:getNum('am_till_total'),
+    am_ending_cash:getNum('am_till_total'),
+    am_paid_in_out:getNum('am_paid_in_out'),
     am_expenses:getNum('am_expenses'),
 
     am_dep_coins:getNum('am_dep_coins'),
@@ -590,26 +599,22 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     am_dep_20s:getNum('am_dep_20s'),
     am_dep_50s:getNum('am_dep_50s'),
     am_dep_100s:getNum('am_dep_100s'),
+    // client-calculated (server overwrites anyway)
     am_cash_deposit_total:getNum('am_cash_deposit_total'),
     am_shift_total:getNum('am_shift_total'),
     am_sales_total:getNum('am_sales_total'),
     am_mishandled_cash:getNum('am_mishandled_cash'),
 
+    // --- PM mapped to server ---
     pm_total_collected:getNum('pm_total_collected'),
     pm_tips:getNum('pm_tips'),
-    pm_card:getNum('pm_card'),
-    pm_cash:getNum('pm_cash'),
-    pm_gift_card:getNum('pm_gift_card'),
+    pm_card_collected:getNum('pm_card'),
+    pm_cash_sales:getNum('pm_cash'),
+    pm_gift_card_sales:getNum('pm_gift_card'),
 
     pm_starting_cash:getNum('pm_starting_cash'),
-    pm_till_coins:getNum('pm_till_coins'),
-    pm_till_1s:getNum('pm_till_1s'),
-    pm_till_5s:getNum('pm_till_5s'),
-    pm_till_10s:getNum('pm_till_10s'),
-    pm_till_20s:getNum('pm_till_20s'),
-    pm_till_50s:getNum('pm_till_50s'),
-    pm_till_100s:getNum('pm_till_100s'),
-    pm_till_total:getNum('pm_till_total'),
+    pm_ending_cash:getNum('pm_till_total'),
+    pm_paid_in_out:getNum('pm_paid_in_out'),
     pm_expenses:getNum('pm_expenses'),
 
     pm_dep_coins:getNum('pm_dep_coins'),
@@ -619,11 +624,13 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     pm_dep_20s:getNum('pm_dep_20s'),
     pm_dep_50s:getNum('pm_dep_50s'),
     pm_dep_100s:getNum('pm_dep_100s'),
+    // client-calculated (server overwrites anyway)
     pm_cash_deposit_total:getNum('pm_cash_deposit_total'),
     pm_shift_total:getNum('pm_shift_total'),
     pm_sales_total:getNum('pm_sales_total'),
     pm_mishandled_cash:getNum('pm_mishandled_cash'),
 
+    // Tip-claim fields captured on the sales form
     sales_tc_cc_tips: getNum('sales_tc_cc_tips'),
     sales_tc_cash_tips: getNum('sales_tc_cash_tips'),
     sales_tc_notes: $('sales_tc_notes')?.value || ''
@@ -631,8 +638,7 @@ $('submitBtn')?.addEventListener('click', async ()=>{
 
   setText('saveHint','Saving…','muted');
   try{
-    const r = await fetch(ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-    const js = await r.json();
+    const js = await sendForm(payload);
     setText('saveHint', js.ok ? 'Saved ✓' : ('Error: '+(js.error||'unknown')));
   }catch(e){
     setText('saveHint','Network error','muted');
