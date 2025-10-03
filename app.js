@@ -28,6 +28,13 @@ function toast(msg){
   toastTimer = setTimeout(()=>{t.style.opacity='0';}, 2500);
 }
 
+/* ====================== SCAN STATE (declare EARLY!) ====================== */
+const scanned = {
+  am: false,       // AM Sales scanned (AM shift or for PM differencing)
+  pmFull: false,   // Full Day scanned (PM)
+  pmAm: false      // AM sales scanned from PM screen
+};
+
 /* ====================== FORM SWITCHER (Which form?) ====================== */
 function applyFormChoice(){
   const salesOn = $('formSales')?.checked;
@@ -49,8 +56,8 @@ function applyShiftUI(){
 
 (function initHeader(){
   const now = new Date();
-  $('date') && ($('date').value = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10));
-  $('time') && ($('time').value = now.toTimeString().slice(0,5));
+  if ($('date')) $('date').value = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  if ($('time')) $('time').value = now.toTimeString().slice(0,5);
 
   ['firstName','lastName','store'].forEach(k=>{
     const el=$(k); if(!el) return;
@@ -75,9 +82,7 @@ function applyShiftUI(){
 })();
 
 /* ====================== RECEIPT FIELDS (mirror) ====================== */
-/* SALES + PAYMENTS ONLY */
 const RECEIPT_SALES = [
-  // SALES
   { label:'Gross Sales', key:'gross_sales' },
   { label:'Items', key:'items' },
   { label:'Service Charges', key:'service_charges' },
@@ -89,7 +94,6 @@ const RECEIPT_SALES = [
   { label:'Gift Cards Sales', key:'gift_cards_sales' },
   { label:'Refunds by Amount', key:'refunds_by_amount' },
   { label:'Total', key:'total_sales' },
-  // PAYMENTS
   { label:'Total Collected', key:'total_collected' },
   { label:'Cash', key:'cash' },
   { label:'Card', key:'card' },
@@ -98,15 +102,14 @@ const RECEIPT_SALES = [
   { label:'Net Total', key:'net_total' }
 ];
 
-/* ====================== MIRRORS (with confidence coloring) ====================== */
 function renderMirror(hostId, spec, values){
   const host = $(hostId); if(!host) return;
-  const status = values?.__status || {}; // {key: 'ok'|'maybe'|'miss'}
+  const status = values?.__status || {};
   host.innerHTML = '';
   spec.forEach(({label, key})=>{
     const id = `${hostId}_${key}`;
     const v = values?.[key];
-    const cls = status[key] || 'miss'; // 'ok' green, 'maybe' yellow, 'miss' red
+    const cls = status[key] || 'miss';
     host.insertAdjacentHTML('beforeend', `
       <div>
         <label>${label}</label>
@@ -249,7 +252,6 @@ function parseSalesText(text){
   function salesStartClamp(i){ return Math.max(0,i); }
 
   const K = {
-    // Sales
     gross: ['gross sales'],
     items: ['items'],
     svc: ['service charges'],
@@ -261,9 +263,8 @@ function parseSalesText(text){
     giftSales: ['gift cards sales','gift card sales','gift cards'],
     refunds: ['refunds by amount'],
     totalSales: ['total'],
-    // Payments
     totalCollected: ['total collected','grand total'],
-    cash: ['cash '], // avoid "cash sales"
+    cash: ['cash '],
     card: ['card','credit card charges'],
     giftCard: ['gift card '],
     fees: ['fees'],
@@ -283,7 +284,6 @@ function parseSalesText(text){
     return { val:null, status:'miss' };
   }
 
-  // SALES
   let r;
   r = findIn(salesSec, K.gross, lines);        setField('gross_sales', r.val, r.status);
   r = findIn(salesSec, K.items, lines);        setField('items', r.val, r.status);
@@ -297,7 +297,6 @@ function parseSalesText(text){
   r = findIn(salesSec, K.refunds, lines);      setField('refunds_by_amount', r.val, r.status);
   r = findIn(salesSec, K.totalSales, lines);   setField('total_sales', r.val, r.status);
 
-  // PAYMENTS
   r = findIn(paySec, K.totalCollected, lines); setField('total_collected', r.val, r.status);
   r = findIn(paySec, K.cash, lines.slice(sPays>=0?sPays:0)); setField('cash', r.val, r.status);
   r = findIn(paySec, K.card, lines.slice(sPays>=0?sPays:0)); setField('card', r.val, r.status);
@@ -305,86 +304,17 @@ function parseSalesText(text){
   r = findIn(paySec, K.fees, lines);           setField('fees', r.val, r.status);
   r = findIn(paySec, K.netTotal, lines);       setField('net_total', r.val, r.status);
 
-  // Heuristic for "Card × 107  $1,220.62"
   if(out.card==null){
     const src = paySec.length ? paySec : lines.slice(sPays>=0?sPays:0);
     const i = src.findIndex(l => /card\s*[x×]/i.test(l));
     if(i>=0){ setField('card', amountNear(src, i), 'maybe'); }
   }
-
   return out;
 }
 
-/* ====================== SCAN STATE (for gating) ====================== */
-const scanned = {
-  am: false,       // AM Sales scanned (AM shift or for PM differencing)
-  pmFull: false,   // Full Day scanned (PM)
-  pmAm: false      // AM sales scanned from PM screen
-};
-
-/* ====================== SCAN HANDLERS ====================== */
-// AM Sales
-$('btnScanAmSales')?.addEventListener('click', async ()=>{
-  const f = $('fileAmSales').files?.[0]; if(!f) return alert('Pick AM Sales photo');
-  const text = await ocrText(f, $('statusAmSales'));
-  const s = parseSalesText(text);
-
-  renderMirror('amSalesMirror', RECEIPT_SALES, s);
-  setNum('am_total_collected', s.total_collected);
-  setNum('am_tips', s.tips);
-  setNum('am_card', s.card);
-  setNum('am_cash', s.cash);
-  setNum('am_gift_card', s.gift_card ?? s.gift_cards_sales);
-
-  setText('amSalesChip','scanned','badge');
-  scanned.am = true;
-  if ([s.total_collected,s.tips,s.card].some(v=>v==null)) { const d=$('amSalesDetails'); if(d) d.open=true; }
-  recalcAll();
-});
-
-/* ---------- PM: Scan AM / Scan Full Day / Reviews ---------- */
+/* ====================== PM DIFF STATE ====================== */
 let pmAmParsed=null, pmFullParsed=null; // raw parsed
 let pmDerived=null;                     // differences (PM-only view)
-
-// PM: Scan AM
-$('btnScanPmAmSales')?.addEventListener('click', async ()=>{
-  const f=$('filePmAmSales').files?.[0]; if(!f) return alert('Pick AM Sales (earlier shift) photo');
-  const text = await ocrText(f, $('statusPmAm'));
-  pmAmParsed = parseSalesText(text);
-  renderMirror('pmAmSalesMirror', RECEIPT_SALES, pmAmParsed);
-  setText('pmSalesChip','AM scanned','badge');
-  scanned.pmAm = true; scanned.am = true;
-  computePMDerived();
-});
-
-// PM: Scan Full Day (HTML ids: filePmSales / btnScanPmSales / statusPmSales)
-$('btnScanPmSales')?.addEventListener('click', async ()=>{
-  const f=$('filePmSales').files?.[0]; if(!f) return alert('Pick Full Day Sales photo');
-  const text = await ocrText(f, $('statusPmSales'));
-  pmFullParsed = parseSalesText(text);
-  setText('pmSalesChip','Full Day scanned','badge');
-  scanned.pmFull = true;
-  computePMDerived();
-});
-
-// PM: Review AM
-$('btnReviewPmAm')?.addEventListener('click', ()=>{
-  const d=$('pmAmMirrorDetails'); if(d) d.open = true;
-});
-
-// PM: Review Full Day
-$('btnReviewPmSales')?.addEventListener('click', ()=>{
-  if(!pmFullParsed){ alert('Scan the Full Day receipt first.'); return; }
-  renderMirror('pmSalesMirror', RECEIPT_SALES, pmFullParsed);
-  const d=$('pmSalesDetails'); if(d) d.open = true;
-});
-
-// PM: Review PM (derived = Full Day − AM)
-$('btnReviewPmComputed')?.addEventListener('click', ()=>{
-  if(!pmAmParsed || !pmFullParsed){ alert('Scan AM and Full Day receipts first.'); return; }
-  computePMDerived();
-  const d=$('pmSalesDetails'); if(d) d.open = true;
-});
 
 function computePMDerived(){
   if(!pmAmParsed || !pmFullParsed) return;
@@ -414,8 +344,68 @@ function computePMDerived(){
   recalcAll();
 }
 
+/* ====================== SCAN HANDLERS ====================== */
+// AM Sales
+$('btnScanAmSales')?.addEventListener('click', async ()=>{
+  const f = $('fileAmSales').files?.[0]; if(!f) return alert('Pick AM Sales photo');
+  const text = await ocrText(f, $('statusAmSales'));
+  const s = parseSalesText(text);
+
+  renderMirror('amSalesMirror', RECEIPT_SALES, s);
+  setNum('am_total_collected', s.total_collected);
+  setNum('am_tips', s.tips);
+  setNum('am_card', s.card);
+  setNum('am_cash', s.cash);
+  setNum('am_gift_card', s.gift_card ?? s.gift_cards_sales);
+
+  setText('amSalesChip','scanned','badge');
+  scanned.am = true;
+  if ([s.total_collected,s.tips,s.card].some(v=>v==null)) { const d=$('amSalesDetails'); if(d) d.open=true; }
+  recalcAll();
+});
+
+// PM: Scan AM
+$('btnScanPmAmSales')?.addEventListener('click', async ()=>{
+  const f=$('filePmAmSales').files?.[0]; if(!f) return alert('Pick AM Sales (earlier shift) photo');
+  const text = await ocrText(f, $('statusPmAm'));
+  pmAmParsed = parseSalesText(text);
+  renderMirror('pmAmSalesMirror', RECEIPT_SALES, pmAmParsed);
+  setText('pmSalesChip','AM scanned','badge');
+  scanned.pmAm = true; scanned.am = true;
+  computePMDerived();
+});
+
+// PM: Scan Full Day
+$('btnScanPmSales')?.addEventListener('click', async ()=>{
+  const f=$('filePmSales').files?.[0]; if(!f) return alert('Pick Full Day Sales photo');
+  const text = await ocrText(f, $('statusPmSales'));
+  pmFullParsed = parseSalesText(text);
+  setText('pmSalesChip','Full Day scanned','badge');
+  scanned.pmFull = true;
+  computePMDerived();
+});
+
+// PM: Review AM
+$('btnReviewPmAm')?.addEventListener('click', ()=>{
+  const d=$('pmAmMirrorDetails'); if(d) d.open = true;
+});
+
+// PM: Review Full Day
+$('btnReviewPmSales')?.addEventListener('click', ()=>{
+  if(!pmFullParsed){ alert('Scan the Full Day receipt first.'); return; }
+  renderMirror('pmSalesMirror', RECEIPT_SALES, pmFullParsed);
+  const d=$('pmSalesDetails'); if(d) d.open = true;
+});
+
+// PM: Review PM (derived = Full Day − AM)
+$('btnReviewPmComputed')?.addEventListener('click', ()=>{
+  if(!pmAmParsed || !pmFullParsed){ alert('Scan AM and Full Day receipts first.'); return; }
+  computePMDerived();
+  const d=$('pmSalesDetails'); if(d) d.open = true;
+});
+
 /* ====================== TILL / DEPOSIT HELPERS ====================== */
-function sumDenoms(prefix, kind){ // kind: 'till' or 'dep'
+function sumDenoms(prefix, kind){
   const base = `${prefix}_${kind}_`;
   return fix2(
     (getNum(base+'coins')||0) +
@@ -455,24 +445,18 @@ function updateDeposit(prefix){
 function depCashTotal(prefix){ return sumDenoms(prefix,'dep'); }
 function recalc(prefix){
   const card = getNum(`${prefix}_card`)||0;
-  const depCash  = depCashTotal(prefix);        // cash deposit only
-  const depositTotal = fix2(card + depCash);    // card + cash deposit
+  const depCash  = depCashTotal(prefix);
+  const depositTotal = fix2(card + depCash);
 
   const tillEnd  = getNum(`${prefix}_till_total`) || 0;
   const starting = getNum(`${prefix}_starting_cash`) || 0;
   const tips     = getNum(`${prefix}_tips`) || 0;
   const totalCollected = getNum(`${prefix}_total_collected`) || 0;
+  const giftCard = getNum(`${prefix}_gift_card`) || 0; // receipts show negative
 
-  // gift_card is negative on receipt; formula uses + (-gift_card)
-  const giftCard = getNum(`${prefix}_gift_card`) || 0;
-
-  // Daily Sales (PM inputs are Full−AM via derived values)
   const dailySales = fix2(totalCollected - tips + (-giftCard) + starting - tillEnd);
   setNum(`${prefix}_sales_total`, dailySales);
 
-  // Mishandled Cash
-  // AM: mish = (card + cash deposit) − AM Daily Sales
-  // PM: mish = (card + cash deposit) − PM Daily Sales − AM Daily Sales
   let mish = null;
   if(prefix==='am'){
     mish = fix2(depositTotal - dailySales);
@@ -482,7 +466,6 @@ function recalc(prefix){
   }
   setNum(`${prefix}_mishandled_cash`, mish);
 
-  // Shift "total" (Card + cash deposit)
   const shift = fix2(card + depCash);
   setNum(`${prefix}_shift_total`, shift);
 
@@ -492,7 +475,6 @@ function recalc(prefix){
 }
 function recalcAll(){ recalc('am'); recalc('pm'); gateSubmit(); }
 
-// Recalc on any numeric/date/time inputs
 qsa('input').forEach(el=>{
   if(['number','date','time'].includes(el.type)){
     el.addEventListener('input', recalcAll);
@@ -501,11 +483,8 @@ qsa('input').forEach(el=>{
 $('recalcBtn')?.addEventListener('click', recalcAll);
 
 /* ====================== TIP CLAIM TOASTS ====================== */
-// Inside Shift Sales (required at submit)
 $('sales_tc_cc_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
 $('sales_tc_cash_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
-
-// Standalone Tip Claim form
 $('tc_cc_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
 $('tc_cash_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
 
@@ -570,7 +549,6 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     return;
   }
 
-  // SALES FORM submit: enforce scan gating & tip claim filled
   const isPm = $('shiftPM')?.checked;
   if (isPm && !(scanned.pmAm && scanned.pmFull)) { alert('Please scan AM and Full Day receipts first.'); return; }
   if (!isPm && !scanned.am) { alert('Please scan the AM Sales receipt first.'); return; }
@@ -588,14 +566,12 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     time_of_entry: $('time').value,
     shift: isPm ? 'PM' : 'AM',
 
-    // AM preview values
     am_total_collected:getNum('am_total_collected'),
     am_tips:getNum('am_tips'),
     am_card:getNum('am_card'),
     am_cash:getNum('am_cash'),
     am_gift_card:getNum('am_gift_card'),
 
-    // AM till/extras
     am_starting_cash:getNum('am_starting_cash'),
     am_till_coins:getNum('am_till_coins'),
     am_till_1s:getNum('am_till_1s'),
@@ -607,7 +583,6 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     am_till_total:getNum('am_till_total'),
     am_expenses:getNum('am_expenses'),
 
-    // AM deposit
     am_dep_coins:getNum('am_dep_coins'),
     am_dep_1s:getNum('am_dep_1s'),
     am_dep_5s:getNum('am_dep_5s'),
@@ -620,14 +595,12 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     am_sales_total:getNum('am_sales_total'),
     am_mishandled_cash:getNum('am_mishandled_cash'),
 
-    // PM preview (derived or manual)
     pm_total_collected:getNum('pm_total_collected'),
     pm_tips:getNum('pm_tips'),
     pm_card:getNum('pm_card'),
     pm_cash:getNum('pm_cash'),
     pm_gift_card:getNum('pm_gift_card'),
 
-    // PM till/extras
     pm_starting_cash:getNum('pm_starting_cash'),
     pm_till_coins:getNum('pm_till_coins'),
     pm_till_1s:getNum('pm_till_1s'),
@@ -639,7 +612,6 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     pm_till_total:getNum('pm_till_total'),
     pm_expenses:getNum('pm_expenses'),
 
-    // PM deposit
     pm_dep_coins:getNum('pm_dep_coins'),
     pm_dep_1s:getNum('pm_dep_1s'),
     pm_dep_5s:getNum('pm_dep_5s'),
@@ -652,7 +624,6 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     pm_sales_total:getNum('pm_sales_total'),
     pm_mishandled_cash:getNum('pm_mishandled_cash'),
 
-    // Tip Claim inside Sales Form
     sales_tc_cc_tips: getNum('sales_tc_cc_tips'),
     sales_tc_cash_tips: getNum('sales_tc_cash_tips'),
     sales_tc_notes: $('sales_tc_notes')?.value || ''
