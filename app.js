@@ -1,5 +1,5 @@
 /* ====================== CONFIG ====================== */
-const ENDPOINT = 'https://script.google.com/macros/s/AKfycby1cmY6Ck8ci0RDozBgb_eAsZqq3RAGJW61irUXfvD8JRnLcZIc1Fv-05-wVaLIs-3y/exec';
+const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwF4PQNX6ypV2zVcsV20yPYXi_xv71UIuMU2psUwGCsK0eNxx_lOD9P39dKP-183euWiQ/exec';
 const MATH_EPS = 0.02;
 
 /* ====================== DOM HELPERS ====================== */
