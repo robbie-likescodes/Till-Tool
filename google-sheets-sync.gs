@@ -19,8 +19,6 @@ const HEADERS = [
   'Submission Date',
   'FIrst Name',
   ' Last Name',
-  "Coworker\'s Name - First Name",
-  "Coworker\'s Name - Last Name",
   'Time',
   'Date of Shift',
   'Store Location',
@@ -61,13 +59,16 @@ const HEADERS = [
   'AM Mishandled Cash',
   'AM Mishandled Cash (AM Shift Previously Posted on Group Me)',
   'PM Mishandled Cash (Post to Group Me)',
-  'Last Update Date',
   'AM Cash Sales',
   'PM Cash Sales',
   'Conditional Time AM Vs PM',
   'PM Till Total',
   'Deposit Total',
+  'AM Notes',
+  'PM Notes',
   'Cash Tips',
+  'Submission ID',
+  'My Signature',
 ];
 
 function doPost(e) {
@@ -194,6 +195,9 @@ function buildRow_(p) {
   const claimedCcTips = num_(pick_(p, ['sales_tc_cc_tips', 'cc_tips_claimed']));
   const claimedCcAm = activeShift === 'AM' ? claimedCcTips : '';
   const claimedCcPm = activeShift === 'PM' ? claimedCcTips : '';
+  const enteredNotes = pick_(p, ['sales_tc_notes', 'notes']);
+  const amNotes = pick_(p, ['am_notes'], activeShift === 'AM' ? enteredNotes : '');
+  const pmNotes = pick_(p, ['pm_notes'], activeShift === 'PM' ? enteredNotes : '');
 
   const shiftKeys = (amKey, pmKey) => (activeShift === 'PM' ? [pmKey, amKey] : [amKey, pmKey]);
 
@@ -221,8 +225,6 @@ function buildRow_(p) {
     Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'),
     p.first_name || p.tc_firstName || p.tc_first_name || '',
     p.last_name || p.tc_lastName || p.tc_last_name || '',
-    p.coworker_first_name || '',
-    p.coworker_last_name || '',
     p.time_of_entry || p.tc_time || '',
     p.todays_date || p.tc_date || '',
     p.store_location || p.tc_store || '',
@@ -263,13 +265,16 @@ function buildRow_(p) {
     num_(p.am_mishandled_cash),
     num_(p.am_mishandled_cash),
     num_(p.pm_mishandled_cash),
-    Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
     num_(p.am_cash_sales),
     num_(p.pm_cash_sales),
     conditionalShift,
     num_(pick_(p, ['pm_till_total', 'pm_ending_cash'])),
     safeDepositTotal,
+    amNotes,
+    pmNotes,
     num_(pick_(p, ['sales_tc_cash_tips', 'cash_tips_claimed'])),
+    p.submission_id || '',
+    pick_(p, ['my_signature', 'signature']),
   ];
 }
 
