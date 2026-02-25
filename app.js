@@ -604,6 +604,14 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     am_paid_in_out:getNum('am_paid_in_out'),
     am_expenses:getNum('am_expenses'),
 
+    am_till_coins:getNum('am_till_coins'),
+    am_till_1s:getNum('am_till_1s'),
+    am_till_5s:getNum('am_till_5s'),
+    am_till_10s:getNum('am_till_10s'),
+    am_till_20s:getNum('am_till_20s'),
+    am_till_50s:getNum('am_till_50s'),
+    am_till_100s:getNum('am_till_100s'),
+
     am_dep_coins:getNum('am_dep_coins'),
     am_dep_1s:getNum('am_dep_1s'),
     am_dep_5s:getNum('am_dep_5s'),
@@ -628,6 +636,14 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     pm_ending_cash:getNum('pm_till_total'),
     pm_paid_in_out:getNum('pm_paid_in_out'),
     pm_expenses:getNum('pm_expenses'),
+
+    pm_till_coins:getNum('pm_till_coins'),
+    pm_till_1s:getNum('pm_till_1s'),
+    pm_till_5s:getNum('pm_till_5s'),
+    pm_till_10s:getNum('pm_till_10s'),
+    pm_till_20s:getNum('pm_till_20s'),
+    pm_till_50s:getNum('pm_till_50s'),
+    pm_till_100s:getNum('pm_till_100s'),
 
     pm_dep_coins:getNum('pm_dep_coins'),
     pm_dep_1s:getNum('pm_dep_1s'),

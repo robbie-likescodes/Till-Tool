@@ -189,32 +189,38 @@ function buildRow_(p) {
   const now = new Date();
   const shift = String(p.shift || '').toUpperCase();
   const conditionalShift = shift || inferShiftFromTime_(p.time_of_entry);
+  const activeShift = conditionalShift === 'PM' ? 'PM' : 'AM';
 
-  const claimedCcAm = shift === 'AM' ? num_(pick_(p, ['sales_tc_cc_tips', 'cc_tips_claimed'])) : '';
-  const claimedCcPm = shift === 'PM' ? num_(pick_(p, ['sales_tc_cc_tips', 'cc_tips_claimed'])) : '';
+  const claimedCcTips = num_(pick_(p, ['sales_tc_cc_tips', 'cc_tips_claimed']));
+  const claimedCcAm = activeShift === 'AM' ? claimedCcTips : '';
+  const claimedCcPm = activeShift === 'PM' ? claimedCcTips : '';
 
-  const tillCoins = num_(pick_(p, ['am_till_coins', 'pm_till_coins']));
-  const till1s = num_(pick_(p, ['am_till_1s', 'pm_till_1s']));
-  const till5s = num_(pick_(p, ['am_till_5s', 'pm_till_5s']));
-  const till10s = num_(pick_(p, ['am_till_10s', 'pm_till_10s']));
-  const till20s = num_(pick_(p, ['am_till_20s', 'pm_till_20s']));
-  const till50s = num_(pick_(p, ['am_till_50s', 'pm_till_50s']));
-  const till100s = num_(pick_(p, ['am_till_100s', 'pm_till_100s']));
+  const shiftKeys = (amKey, pmKey) => (activeShift === 'PM' ? [pmKey, amKey] : [amKey, pmKey]);
 
-  const depCoins = num_(pick_(p, ['am_dep_coins', 'pm_dep_coins']));
-  const dep1s = num_(pick_(p, ['am_dep_1s', 'pm_dep_1s']));
-  const dep5s = num_(pick_(p, ['am_dep_5s', 'pm_dep_5s']));
-  const dep10s = num_(pick_(p, ['am_dep_10s', 'pm_dep_10s']));
-  const dep20s = num_(pick_(p, ['am_dep_20s', 'pm_dep_20s']));
-  const dep50s = num_(pick_(p, ['am_dep_50s', 'pm_dep_50s']));
-  const dep100s = num_(pick_(p, ['am_dep_100s', 'pm_dep_100s']));
+  const tillCoins = num_(pick_(p, shiftKeys('am_till_coins', 'pm_till_coins')));
+  const till1s = num_(pick_(p, shiftKeys('am_till_1s', 'pm_till_1s')));
+  const till5s = num_(pick_(p, shiftKeys('am_till_5s', 'pm_till_5s')));
+  const till10s = num_(pick_(p, shiftKeys('am_till_10s', 'pm_till_10s')));
+  const till20s = num_(pick_(p, shiftKeys('am_till_20s', 'pm_till_20s')));
+  const till50s = num_(pick_(p, shiftKeys('am_till_50s', 'pm_till_50s')));
+  const till100s = num_(pick_(p, shiftKeys('am_till_100s', 'pm_till_100s')));
 
-  const depositTotal = sum_(p.am_cash_deposit_total, p.pm_cash_deposit_total, depCoins, dep1s, dep5s, dep10s, dep20s, dep50s, dep100s);
+  const depCoins = num_(pick_(p, shiftKeys('am_dep_coins', 'pm_dep_coins')));
+  const dep1s = num_(pick_(p, shiftKeys('am_dep_1s', 'pm_dep_1s')));
+  const dep5s = num_(pick_(p, shiftKeys('am_dep_5s', 'pm_dep_5s')));
+  const dep10s = num_(pick_(p, shiftKeys('am_dep_10s', 'pm_dep_10s')));
+  const dep20s = num_(pick_(p, shiftKeys('am_dep_20s', 'pm_dep_20s')));
+  const dep50s = num_(pick_(p, shiftKeys('am_dep_50s', 'pm_dep_50s')));
+  const dep100s = num_(pick_(p, shiftKeys('am_dep_100s', 'pm_dep_100s')));
+
+  const depositTotal = num_(pick_(p, shiftKeys('am_cash_deposit_total', 'pm_cash_deposit_total')));
+  const computedDepositTotal = sum_(depCoins, dep1s, dep5s, dep10s, dep20s, dep50s, dep100s);
+  const safeDepositTotal = depositTotal !== '' ? depositTotal : computedDepositTotal;
 
   return [
     Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'),
-    p.first_name || p.tc_firstName || '',
-    p.last_name || p.tc_lastName || '',
+    p.first_name || p.tc_firstName || p.tc_first_name || '',
+    p.last_name || p.tc_lastName || p.tc_last_name || '',
     p.coworker_first_name || '',
     p.coworker_last_name || '',
     p.time_of_entry || p.tc_time || '',
@@ -224,7 +230,7 @@ function buildRow_(p) {
     num_(p.pm_tips),
     claimedCcAm,
     claimedCcPm,
-    num_(pick_(p, ['am_expenses', 'pm_expenses'])),
+    num_(pick_(p, shiftKeys('am_expenses', 'pm_expenses'))),
     tillCoins,
     till1s,
     till5s,
@@ -232,7 +238,7 @@ function buildRow_(p) {
     till20s,
     till50s,
     till100s,
-    num_(pick_(p, ['am_till_total', 'am_ending_cash'])),
+    num_(pick_(p, shiftKeys('am_till_total', 'pm_till_total').concat(shiftKeys('am_ending_cash', 'pm_ending_cash')))),
     num_(pick_(p, ['pm_starting_cash'])),
     depCoins,
     dep1s,
@@ -251,7 +257,7 @@ function buildRow_(p) {
     num_(p.pm_gift_card_sales),
     num_(p.am_paid_in_out),
     num_(p.pm_paid_in_out),
-    num_(pick_(p, ['am_starting_cash', 'pm_starting_cash'])),
+    num_(pick_(p, shiftKeys('am_starting_cash', 'pm_starting_cash'))),
     num_(p.am_sales_total),
     num_(p.pm_sales_total),
     num_(p.am_mishandled_cash),
@@ -262,7 +268,7 @@ function buildRow_(p) {
     num_(p.pm_cash_sales),
     conditionalShift,
     num_(pick_(p, ['pm_till_total', 'pm_ending_cash'])),
-    depositTotal,
+    safeDepositTotal,
     num_(pick_(p, ['sales_tc_cash_tips', 'cash_tips_claimed'])),
   ];
 }
