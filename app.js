@@ -84,6 +84,29 @@ const SALES_WIZARD_STEPS = [
 ];
 let salesStep = 0;
 
+function renderSalesStepJumps(salesOn){
+  const host = $('salesStepJumps');
+  if(!host) return;
+  if(!salesOn){
+    host.innerHTML = '';
+    return;
+  }
+  host.innerHTML = '';
+  for(let i = 0; i <= salesStep; i += 1){
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `btn btn-ghost tiny wizard-step-btn${i === salesStep ? ' current' : ''}`;
+    btn.textContent = i === salesStep ? `Current: ${SALES_WIZARD_STEPS[i]}` : `Back to: ${SALES_WIZARD_STEPS[i]}`;
+    btn.disabled = i === salesStep;
+    btn.addEventListener('click', ()=>{
+      salesStep = i;
+      updateSalesWizard();
+      gateSubmit();
+    });
+    host.appendChild(btn);
+  }
+}
+
 function updateSalesWizard(){
   const salesOn = $('formSales')?.checked;
   const isPm = $('shiftPM')?.checked;
@@ -109,6 +132,7 @@ function updateSalesWizard(){
     next.textContent = salesStep === SALES_WIZARD_STEPS.length - 1 ? 'Done' : 'Next';
   }
   setText('salesStepLabel', `Step ${salesStep + 1} of ${SALES_WIZARD_STEPS.length}: ${SALES_WIZARD_STEPS[salesStep]}`, 'hint');
+  renderSalesStepJumps(!!salesOn);
 
   const sticky = document.querySelector('.sticky');
   if(sticky) sticky.hidden = salesOn && salesStep !== SALES_WIZARD_STEPS.length - 1;
