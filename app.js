@@ -83,6 +83,34 @@ const SALES_WIZARD_STEPS = [
   'Sign and Submit'
 ];
 let salesStep = 0;
+let salesNavSentinelVisible = false;
+
+function updateSalesNavVisibility(){
+  const nav = $('salesWizardNav');
+  if(!nav) return;
+  const shouldShow = !!($('formSales')?.checked && salesNavSentinelVisible);
+  nav.classList.toggle('is-visible', shouldShow);
+  nav.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+}
+
+function initSalesNavObserver(){
+  const sentinel = $('salesNavSentinel');
+  if(!sentinel) return;
+
+  if(!('IntersectionObserver' in window)){
+    salesNavSentinelVisible = true;
+    updateSalesNavVisibility();
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries)=>{
+    const entry = entries[0];
+    salesNavSentinelVisible = !!entry?.isIntersecting;
+    updateSalesNavVisibility();
+  }, { threshold: 0.05 });
+
+  observer.observe(sentinel);
+}
 
 function renderSalesStepJumps(salesOn){
   const host = $('salesStepJumps');
@@ -122,6 +150,7 @@ function updateSalesWizard(){
   }
   setText('salesStepLabel', `Step ${salesStep + 1} of ${SALES_WIZARD_STEPS.length}: ${SALES_WIZARD_STEPS[salesStep]}`, 'hint');
   renderSalesStepJumps(!!salesOn);
+  updateSalesNavVisibility();
 
   const sticky = document.querySelector('.sticky');
   if(sticky) sticky.hidden = salesOn && salesStep !== SALES_WIZARD_STEPS.length - 1;
@@ -766,6 +795,7 @@ function bindSalesNavButtons(){
 }
 
 bindSalesNavButtons();
+initSalesNavObserver();
 
 /* ====================== TIP CLAIM TOASTS ====================== */
 $('sales_tc_cc_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
