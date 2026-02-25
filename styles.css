@@ -185,6 +185,10 @@ input[readonly]{background:#F7F7F7; cursor:not-allowed}
 
 .wizard-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;bottom:78px;z-index:900}
 .wizard-nav .row{margin:0}
+.wizard-nav .btn{min-height:44px;padding:10px 16px}
+.wizard-jumps{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;flex:1}
+.wizard-step-btn{font-size:.85rem;padding:8px 12px;min-height:40px}
+.wizard-step-btn.current{border-color:var(--grad-b);box-shadow:0 0 0 2px color-mix(in oklab, var(--grad-b) 20%, white)}
 .tip{background:color-mix(in oklab, var(--grad-b) 7%, var(--card));border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:12px 0}
 
 /* Sticky submit bar */
