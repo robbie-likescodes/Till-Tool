@@ -4,7 +4,7 @@ This repo includes a Google Apps Script endpoint at `google-sheets-sync.gs` that
 
 ## Pre-filled values from your request
 - Script ID: `1GQlBBTuoOKVxS4pxm5mQQVE5hz64CmzAe0T01dYgIDxycfsSPAIdjDtn`
-- Web app URL: `https://script.google.com/macros/s/AKfycbxbpXZPqE4uViwMK6a9XR2oY6PWvxByXwhAx2glpKZX4xfOy-w1DU509LZvsfB81jzN/exec`
+- Web app URL: `https://script.google.com/macros/s/AKfycbwN035wVgJ3Slszvg0EwkHxT5O9sJYMAQIbJWB9fCuHw10P2YnHy0Ckf_ZTKZ-kWA9o/exec`
 - Spreadsheet document name: `Scan Till Tool`
 - Worksheet/tab name: `Entries from Form`
 
