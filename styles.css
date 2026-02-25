@@ -182,6 +182,11 @@ input[readonly]{background:#F7F7F7; cursor:not-allowed}
   background:#fff;border:2px solid var(--line);box-shadow:0 4px 10px rgba(0,0,0,.15)
 }
 
+
+.wizard-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;bottom:78px;z-index:900}
+.wizard-nav .row{margin:0}
+.tip{background:color-mix(in oklab, var(--grad-b) 7%, var(--card));border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:12px 0}
+
 /* Sticky submit bar */
 .sticky{
   position:fixed;left:0;right:0;bottom:0;

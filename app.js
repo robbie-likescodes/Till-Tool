@@ -70,11 +70,63 @@ const scanned = {
   pmAm: false      // AM sales scanned from PM screen
 };
 
+
+/* ====================== SALES WIZARD ====================== */
+const SALES_WIZARD_STEPS = [
+  'Shift Selection',
+  'Sales Report',
+  'Manual Extras',
+  'Till Total',
+  'Deposit Total',
+  'Computed Totals',
+  'Tip Claim',
+  'Sign and Submit'
+];
+let salesStep = 0;
+
+function updateSalesWizard(){
+  const salesOn = $('formSales')?.checked;
+  const isPm = $('shiftPM')?.checked;
+  qsa('[data-sales-step]').forEach(el=>{
+    const step = Number(el.dataset.salesStep);
+    if(!salesOn){
+      el.hidden = true;
+      return;
+    }
+    const inStep = step === salesStep;
+    if(el.id === 'amMode') return;
+    if(el.id === 'pmMode') return;
+    if(el.closest('#amMode') && isPm){ el.hidden = true; return; }
+    if(el.closest('#pmMode') && !isPm){ el.hidden = true; return; }
+    el.hidden = !inStep;
+  });
+
+  const back = $('salesBackBtn');
+  const next = $('salesNextBtn');
+  if(back) back.disabled = !salesOn || salesStep === 0;
+  if(next){
+    next.disabled = !salesOn || salesStep === SALES_WIZARD_STEPS.length - 1;
+    next.textContent = salesStep === SALES_WIZARD_STEPS.length - 1 ? 'Done' : 'Next';
+  }
+  setText('salesStepLabel', `Step ${salesStep + 1} of ${SALES_WIZARD_STEPS.length}: ${SALES_WIZARD_STEPS[salesStep]}`, 'hint');
+
+  const sticky = document.querySelector('.sticky');
+  if(sticky) sticky.hidden = salesOn && salesStep !== SALES_WIZARD_STEPS.length - 1;
+}
+
+function goSalesStep(delta){
+  salesStep = Math.max(0, Math.min(SALES_WIZARD_STEPS.length - 1, salesStep + delta));
+  updateSalesWizard();
+  gateSubmit();
+}
+
 /* ====================== FORM SWITCHER (Which form?) ====================== */
 function applyFormChoice(){
   const salesOn = $('formSales')?.checked;
   show('salesForm', !!salesOn);
   show('tipForm', !salesOn);
+  if(!salesOn) salesStep = 0;
+  updateSalesWizard();
   gateSubmit();
 }
 ['formSales','formTips'].forEach(id => $(id)?.addEventListener('change', applyFormChoice));
@@ -86,12 +138,15 @@ function applyShiftUI(){
   const pm = $('shiftPM')?.checked;
   show('amMode', !pm);
   show('pmMode', !!pm);
+  updateSalesWizard();
   gateSubmit();
 }
 
 (function initHeader(){
   const now = new Date();
-  if ($('date')) $('date').value = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  const todayIso = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  if ($('date')) $('date').value = todayIso;
+  if ($('sales_signature_date')) $('sales_signature_date').value = todayIso;
   if ($('time')) $('time').value = now.toTimeString().slice(0,5);
 
   ['firstName','lastName','store'].forEach(k=>{
@@ -680,12 +735,20 @@ qsa('input').forEach(el=>{
   }
 });
 $('recalcBtn')?.addEventListener('click', recalcAll);
+$('salesBackBtn')?.addEventListener('click', ()=>goSalesStep(-1));
+$('salesNextBtn')?.addEventListener('click', ()=>goSalesStep(1));
 
 /* ====================== TIP CLAIM TOASTS ====================== */
 $('sales_tc_cc_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
 $('sales_tc_cash_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
 $('tc_cc_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
 $('tc_cash_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));
+
+
+qsa('input, select').forEach(el=>{
+  el.addEventListener('input', gateSubmit);
+  el.addEventListener('change', gateSubmit);
+});
 
 /* ====================== SUBMIT GATE ====================== */
 function gateSubmit(){
@@ -699,13 +762,16 @@ function gateSubmit(){
     const isPm = $('shiftPM')?.checked;
     const scansOk = isPm ? (scanned.pmAm && scanned.pmFull) : scanned.am;
     const tipReqOk = money($('sales_tc_cc_tips')?.value)!=null && money($('sales_tc_cash_tips')?.value)!=null;
+    const signOk = $('sales_signature')?.value.trim() && $('sales_signature_date')?.value;
 
-    const ready = !!(okBasicsSales && scansOk && tipReqOk);
+    const ready = !!(okBasicsSales && scansOk && tipReqOk && signOk && salesStep === SALES_WIZARD_STEPS.length - 1);
     $('submitBtn').disabled = !ready;
     setText('saveHint',
       okBasicsSales
         ? (tipReqOk
-            ? (scansOk ? 'Ready to submit ✓' : (isPm ? 'Scan AM & Full Day first' : 'Scan AM Sales first'))
+            ? (signOk
+                ? (scansOk ? (salesStep === SALES_WIZARD_STEPS.length - 1 ? 'Ready to submit ✓' : 'Go to Sign and Submit step') : (isPm ? 'Scan AM & Full Day first' : 'Scan AM Sales first'))
+                : 'Complete signature and signed date')
             : 'Enter tip claim (CC + Cash)')
         : 'Fill name/store/date/time',
       ready ? '' : 'muted'
@@ -768,6 +834,9 @@ $('submitBtn')?.addEventListener('click', async ()=>{
   if (!isPm && !scanned.am) { alert('Please scan the AM Sales receipt first.'); return; }
   if (money($('sales_tc_cc_tips')?.value)==null || money($('sales_tc_cash_tips')?.value)==null){
     alert('Enter Tip Claim (CC + Cash) before submitting.'); return;
+  }
+  if (!$('sales_signature')?.value.trim() || !$('sales_signature_date')?.value){
+    alert('Complete signature and signed date before submitting.'); return;
   }
 
   const payload = {
@@ -849,7 +918,9 @@ $('submitBtn')?.addEventListener('click', async ()=>{
     // Tip-claim fields captured on the sales form
     sales_tc_cc_tips: getNum('sales_tc_cc_tips'),
     sales_tc_cash_tips: getNum('sales_tc_cash_tips'),
-    sales_tc_notes: $('sales_tc_notes')?.value || ''
+    sales_tc_notes: $('sales_tc_notes')?.value || '',
+    sales_signature: $('sales_signature')?.value.trim() || '',
+    sales_signature_date: $('sales_signature_date')?.value || ''
   };
 
   setText('saveHint','Saving…','muted');
