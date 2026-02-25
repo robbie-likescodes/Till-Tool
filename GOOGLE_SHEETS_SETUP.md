@@ -1,6 +1,6 @@
 # Google Sheets Writeback Script
 
-This repo includes a Google Apps Script endpoint at `google-sheets-sync.gs` that accepts submissions from `app.js` and writes them to your sheet using your requested header order.
+This repo includes a Google Apps Script endpoint at `google-sheets-sync.gs` that accepts browser submissions and writes them to your sheet using your requested header order, with no device-level setup.
 
 ## Pre-filled values from your request
 - Script ID: `1GQlBBTuoOKVxS4pxm5mQQVE5hz64CmzAe0T01dYgIDxycfsSPAIdjDtn`
@@ -85,8 +85,12 @@ My Signature
 - Who has access: **Anyone** (or your org policy equivalent)
 - Confirm the deployed URL matches the URL above.
 
-## 5) Front-end connection
-- `app.js` is already configured to use the provided web app URL.
+## 5) Front-end connection (cloud-only)
+- Set your deployed Apps Script Web App URL in one of these browser-safe places:
+  - `index.html` meta tag: `<meta name="till-endpoint" content="https://script.google.com/macros/s/.../exec" />`
+  - or runtime config: `window.TILL_CONFIG = { endpoint: "https://script.google.com/macros/s/.../exec" }`
+- The app now rejects non-HTTPS and non-Google Apps Script hosts for the endpoint.
+- If the endpoint is missing, the UI shows a configuration message instead of attempting local/system workarounds.
 
 ## Notes
 - Supports both existing payload styles:
@@ -95,3 +99,8 @@ My Signature
 - Unknown fields are ignored.
 - Missing optional columns are left blank.
 - `Submission Date` is generated server-side.
+
+## 6) Security hardening
+- Backend validates required fields and numeric fields before writing to Sheets.
+- Backend now supports `action=lookup_am` for PM prefill and returns only the latest matching AM row (store+date), minimizing data exposure.
+- Keep deployment access scoped to your organization when possible and always use HTTPS web app URLs.
