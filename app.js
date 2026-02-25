@@ -91,20 +91,9 @@ function renderSalesStepJumps(salesOn){
     host.innerHTML = '';
     return;
   }
+
+  // Keep bottom navigation focused on Back/Next controls only.
   host.innerHTML = '';
-  for(let i = 0; i <= salesStep; i += 1){
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `btn btn-ghost tiny wizard-step-btn${i === salesStep ? ' current' : ''}`;
-    btn.textContent = i === salesStep ? `Current: ${SALES_WIZARD_STEPS[i]}` : `Back to: ${SALES_WIZARD_STEPS[i]}`;
-    btn.disabled = i === salesStep;
-    btn.addEventListener('click', ()=>{
-      salesStep = i;
-      updateSalesWizard();
-      gateSubmit();
-    });
-    host.appendChild(btn);
-  }
 }
 
 function updateSalesWizard(){
