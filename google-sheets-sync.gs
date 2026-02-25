@@ -10,7 +10,7 @@
  */
 
 const SCRIPT_ID = '1GQlBBTuoOKVxS4pxm5mQQVE5hz64CmzAe0T01dYgIDxycfsSPAIdjDtn';
-const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxbpXZPqE4uViwMK6a9XR2oY6PWvxByXwhAx2glpKZX4xfOy-w1DU509LZvsfB81jzN/exec';
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwN035wVgJ3Slszvg0EwkHxT5O9sJYMAQIbJWB9fCuHw10P2YnHy0Ckf_ZTKZ-kWA9o/exec';
 const SHEET_ID = ''; // Recommended: paste spreadsheet ID here.
 const SHEET_DOC_NAME = 'Scan Till Tool';
 const SHEET_NAME = 'Entries from Form';
