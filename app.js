@@ -12,6 +12,9 @@ const getNum = id => money($(id)?.value);
 const setText = (id, txt, cls) => { const el=$(id); if(!el) return; if(cls!=null) el.className=cls; el.textContent=txt; };
 const show = (id, on) => { const el=$(id); if(!el) return; el.hidden = !on; };
 
+const PM_AM_NOT_AVAILABLE_MSG = 'AM shift not available for upload, please scan AM receipt.';
+const PM_AM_LOAD_FAILED_MSG = 'Could not load AM from Google Doc. Please scan AM receipt.';
+
 /* ---------- Toasts ---------- */
 let toastTimer=null;
 function toast(msg){
@@ -356,6 +359,154 @@ function computePMDerived(){
   recalcAll();
 }
 
+
+function setPmAmDocError(msg=''){
+  const el = $('pmAmDocError');
+  if(!el) return;
+  el.hidden = !msg;
+  el.textContent = msg;
+}
+
+function normalizeDateYMD(value){
+  if(!value) return '';
+  if(value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0,10);
+  const raw = String(value).trim();
+  if(!raw) return '';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const mdy = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if(mdy){
+    const mm = mdy[1].padStart(2,'0');
+    const dd = mdy[2].padStart(2,'0');
+    const yyyy = mdy[3].length===2 ? `20${mdy[3]}` : mdy[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const dt = new Date(raw);
+  if(Number.isNaN(dt.getTime())) return '';
+  return dt.toISOString().slice(0,10);
+}
+
+function normStore(v){ return String(v||'').trim().toLowerCase(); }
+
+function pickEntryValue(entry, keys){
+  for(const key of keys){
+    if(entry?.[key] !== undefined && entry?.[key] !== null && String(entry[key]).trim() !== '') return entry[key];
+  }
+  return null;
+}
+
+function parseAmDocEntry(entry){
+  const mapped = { __status:{} };
+  const fieldMap = {
+    gross_sales:['gross_sales','am_gross_sales','grossSales','amGrossSales','AM Gross Sales'],
+    items:['items','am_items','AM Items'],
+    service_charges:['service_charges','am_service_charges','serviceCharges','AM Service Charges'],
+    returns:['returns','am_returns','AM Returns'],
+    discounts_comps:['discounts_comps','am_discounts_comps','discountsComps','AM Free Drink Discount','AM Discounts & Comps'],
+    net_sales:['net_sales','am_net_sales','netSales','AM Net Sales'],
+    tax:['tax','am_tax','AM Tax'],
+    tips:['tips','am_tips','am_shift_tips','Total AM Shift Tips','AM Tips'],
+    gift_cards_sales:['gift_cards_sales','am_gift_card_sales','am_gift_cards_sales','AM "Gift Card x ____"','AM Gift Card Sales'],
+    refunds_by_amount:['refunds_by_amount','am_refunds_by_amount','AM Refunds by Amount'],
+    total_sales:['total_sales','am_total_sales','AM Total Sales'],
+    total_collected:['total_collected','am_total_collected','AM Total Collected'],
+    cash:['cash','am_cash_sales','AM Cash Sales'],
+    card:['card','am_card_collected','am_credit_card_charges','AM Credit Card Charges'],
+    gift_card:['gift_card','am_gift_card_sales','AM "Gift Card x ____"'],
+    fees:['fees','am_fees','AM Fees'],
+    net_total:['net_total','am_net_total','AM Net Total']
+  };
+
+  Object.entries(fieldMap).forEach(([key, aliases])=>{
+    const val = money(pickEntryValue(entry, aliases));
+    mapped[key] = val;
+    mapped.__status[key] = val==null ? 'miss' : 'ok';
+  });
+
+  return mapped;
+}
+
+function extractEntryList(payload){
+  if(Array.isArray(payload)) return payload;
+  if(payload && Array.isArray(payload.entries)) return payload.entries;
+  if(payload && Array.isArray(payload.data)) return payload.data;
+  if(payload && Array.isArray(payload.rows)) return payload.rows;
+  if(payload && Array.isArray(payload.result)) return payload.result;
+  if(payload && payload.entry && typeof payload.entry === 'object') return [payload.entry];
+  if(payload && typeof payload === 'object') return [payload];
+  return [];
+}
+
+function chooseMostRecentEntry(entries){
+  if(entries.length <= 1) return entries[0] || null;
+  console.warn(`Multiple AM entries matched (${entries.length}). Choosing most recent.`);
+  const enriched = entries.map((entry, idx)=>{
+    const stamp = pickEntryValue(entry, ['updated_at','submission_date','timestamp','created_at','Submission Date','Time']);
+    const parsed = stamp ? new Date(stamp).getTime() : NaN;
+    return { entry, idx, parsed: Number.isNaN(parsed) ? -Infinity : parsed };
+  });
+  enriched.sort((a,b)=> b.parsed - a.parsed || a.idx - b.idx);
+  return enriched[0].entry;
+}
+
+async function loadPmAmFromGoogleDoc(){
+  const store = $('store')?.value;
+  const date = $('date')?.value;
+  const normalizedDate = normalizeDateYMD(date);
+  const normalizedStore = normStore(store);
+
+  setPmAmDocError('');
+  if(!normalizedStore || !normalizedDate){
+    setPmAmDocError(PM_AM_NOT_AVAILABLE_MSG);
+    return;
+  }
+
+  const hadExistingValues = scanned.pmAm || [
+    getNum('am_total_collected'), getNum('am_tips'), getNum('am_card'), getNum('am_cash'), getNum('am_gift_card')
+  ].some(v => v != null);
+
+  try{
+    setText('statusPmAm','Loading Doc…','pill');
+    const qs = new URLSearchParams({ action:'lookup_am', store, date: normalizedDate, shift:'AM' });
+    const resp = await fetch(`${ENDPOINT}?${qs.toString()}`, { method:'GET' });
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const payload = await resp.json();
+    const entries = extractEntryList(payload);
+    const matches = entries.filter(entry=>{
+      const entryShift = String(pickEntryValue(entry, ['shift','Conditional Time AM Vs PM']) || '').trim().toUpperCase();
+      const entryDate = normalizeDateYMD(pickEntryValue(entry, ['todays_date','date_of_shift','Date of Shift','date']));
+      const entryStore = normStore(pickEntryValue(entry, ['store_location','store','Store Location']));
+      return entryShift === 'AM' && entryDate === normalizedDate && entryStore === normalizedStore;
+    });
+
+    const found = chooseMostRecentEntry(matches);
+    if(!found){
+      setPmAmDocError(PM_AM_NOT_AVAILABLE_MSG);
+      setText('statusPmAm','Doc not found','pill warn');
+      return;
+    }
+
+    pmAmParsed = parseAmDocEntry(found);
+    renderMirror('pmAmSalesMirror', RECEIPT_SALES, pmAmParsed);
+    setNum('am_total_collected', pmAmParsed.total_collected);
+    setNum('am_tips', pmAmParsed.tips);
+    setNum('am_card', pmAmParsed.card);
+    setNum('am_cash', pmAmParsed.cash);
+    setNum('am_gift_card', pmAmParsed.gift_card ?? pmAmParsed.gift_cards_sales);
+
+    scanned.pmAm = true;
+    scanned.am = true;
+    setText('pmSalesChip', hadExistingValues ? 'AM loaded from Doc (overwrote values)' : 'AM loaded from Doc', 'badge');
+    setText('statusPmAm','Doc loaded ✓','pill ok');
+    setPmAmDocError('');
+    computePMDerived();
+  }catch(err){
+    console.error('Could not load AM from Google Doc', err);
+    setPmAmDocError(PM_AM_LOAD_FAILED_MSG);
+    setText('statusPmAm','Doc load failed','pill warn');
+  }
+}
+
 /* ====================== SCAN HANDLERS ====================== */
 // AM Sales
 $('btnScanAmSales')?.addEventListener('click', async ()=>{
@@ -378,6 +529,7 @@ $('btnScanAmSales')?.addEventListener('click', async ()=>{
 
 // PM: Scan AM
 $('btnScanPmAmSales')?.addEventListener('click', async ()=>{
+  setPmAmDocError('');
   const f=$('filePmAmSales').files?.[0]; if(!f) return alert('Pick AM Sales (earlier shift) photo');
   const text = await ocrText(f, $('statusPmAm'));
   pmAmParsed = parseSalesText(text);
@@ -386,6 +538,8 @@ $('btnScanPmAmSales')?.addEventListener('click', async ()=>{
   scanned.pmAm = true; scanned.am = true;
   computePMDerived();
 });
+
+$('btnLoadPmAmDoc')?.addEventListener('click', loadPmAmFromGoogleDoc);
 
 // PM: Scan Full Day
 $('btnScanPmSales')?.addEventListener('click', async ()=>{
