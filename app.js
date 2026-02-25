@@ -128,9 +128,12 @@ function updateSalesWizard(){
 }
 
 function goSalesStep(delta){
-  salesStep = Math.max(0, Math.min(SALES_WIZARD_STEPS.length - 1, salesStep + delta));
+  const nextStep = Math.max(0, Math.min(SALES_WIZARD_STEPS.length - 1, salesStep + delta));
+  if(nextStep === salesStep) return;
+  salesStep = nextStep;
   updateSalesWizard();
   gateSubmit();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* ====================== FORM SWITCHER (Which form?) ====================== */
@@ -748,8 +751,21 @@ qsa('input').forEach(el=>{
   }
 });
 $('recalcBtn')?.addEventListener('click', recalcAll);
-$('salesBackBtn')?.addEventListener('click', ()=>goSalesStep(-1));
-$('salesNextBtn')?.addEventListener('click', ()=>goSalesStep(1));
+function bindSalesNavButtons(){
+  const back = $('salesBackBtn');
+  const next = $('salesNextBtn');
+  if(!back || !next) return;
+
+  const goBack = (ev)=>{ ev.preventDefault(); goSalesStep(-1); };
+  const goNext = (ev)=>{ ev.preventDefault(); goSalesStep(1); };
+
+  back.addEventListener('click', goBack);
+  next.addEventListener('click', goNext);
+  back.addEventListener('touchend', goBack, { passive:false });
+  next.addEventListener('touchend', goNext, { passive:false });
+}
+
+bindSalesNavButtons();
 
 /* ====================== TIP CLAIM TOASTS ====================== */
 $('sales_tc_cc_tips')?.addEventListener('input', ()=>toast('Remember to claim the ACTUAL amount you are taking home'));

@@ -68,7 +68,7 @@ h1{font-size:1.35rem;margin:8px 0 10px}
 h2{font-size:1.05rem;margin:2px 0 10px}
 
 /* =============== Layout =============== */
-.wrap{max-width:980px;margin:0 auto;padding:16px 16px 320px}
+.wrap{max-width:980px;margin:0 auto;padding:16px 16px 220px}
 .card{
   background:var(--card);
   border:1px solid var(--line);
@@ -189,22 +189,34 @@ input[readonly]{background:#F7F7F7; cursor:not-allowed}
   align-items:center;
   gap:12px;
   position:fixed;
-  left:50%;
-  transform:translateX(-50%);
-  bottom:calc(72px + env(safe-area-inset-bottom));
-  width:min(980px, calc(100% - 24px));
-  z-index:900;
+  left:0;
+  right:0;
+  bottom:0;
+  transform:none;
+  width:100%;
+  margin:0;
+  border-radius:22px 22px 0 0;
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+  background:color-mix(in oklab, var(--card) 92%, white);
+  backdrop-filter:blur(6px);
+  z-index:1200;
 }
 .wizard-nav .row{margin:0}
 .wizard-nav .btn{min-height:44px;padding:10px 16px}
 .wizard-jumps{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;flex:1}
+.wizard-jumps:empty{display:none}
+.wizard-nav .hint{margin-left:auto;white-space:nowrap}
 .wizard-step-btn{font-size:.85rem;padding:8px 12px;min-height:40px}
 .wizard-step-btn.current{border-color:var(--grad-b);box-shadow:0 0 0 2px color-mix(in oklab, var(--grad-b) 20%, white)}
 
 @media (max-width:719px){
   .wizard-nav{
-    width:calc(100% - 16px);
-    bottom:calc(68px + env(safe-area-inset-bottom));
+    border-radius:18px 18px 0 0;
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  }
+  .wizard-nav .hint{
+    width:100%;
+    margin-left:0;
   }
 }
 .tip{background:color-mix(in oklab, var(--grad-b) 7%, var(--card));border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:12px 0}
