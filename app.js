@@ -136,6 +136,12 @@ function goSalesStep(delta){
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function openReviewPanel(detailsId){
+  const panel = $(detailsId);
+  if(!panel) return;
+  panel.open = true;
+}
+
 /* ====================== FORM SWITCHER (Which form?) ====================== */
 function applyFormChoice(){
   const salesOn = $('formSales')?.checked;
@@ -592,6 +598,7 @@ async function loadPmAmFromGoogleDoc(){
 
     pmAmParsed = parseAmDocEntry(found);
     renderMirror('pmAmSalesMirror', RECEIPT_SALES, pmAmParsed);
+    openReviewPanel('pmAmMirrorDetails');
     setNum('am_total_collected', pmAmParsed.total_collected);
     setNum('am_tips', pmAmParsed.tips);
     setNum('am_card', pmAmParsed.card);
@@ -627,7 +634,7 @@ $('btnScanAmSales')?.addEventListener('click', async ()=>{
 
   setText('amSalesChip','scanned','badge');
   scanned.am = true;
-  if ([s.total_collected,s.tips,s.card].some(v=>v==null)) { const d=$('amSalesDetails'); if(d) d.open=true; }
+  openReviewPanel('amSalesDetails');
   recalcAll();
 });
 
@@ -638,6 +645,7 @@ $('btnScanPmAmSales')?.addEventListener('click', async ()=>{
   const text = await ocrText(f, $('statusPmAm'));
   pmAmParsed = parseSalesText(text);
   renderMirror('pmAmSalesMirror', RECEIPT_SALES, pmAmParsed);
+  openReviewPanel('pmAmMirrorDetails');
   setText('pmSalesChip','AM scanned','badge');
   scanned.pmAm = true; scanned.am = true;
   computePMDerived();
@@ -650,6 +658,8 @@ $('btnScanPmSales')?.addEventListener('click', async ()=>{
   const f=$('filePmSales').files?.[0]; if(!f) return alert('Pick Full Day Sales photo');
   const text = await ocrText(f, $('statusPmSales'));
   pmFullParsed = parseSalesText(text);
+  renderMirror('pmSalesMirror', RECEIPT_SALES, pmFullParsed);
+  openReviewPanel('pmSalesDetails');
   setText('pmSalesChip','Full Day scanned','badge');
   scanned.pmFull = true;
   computePMDerived();
@@ -657,21 +667,21 @@ $('btnScanPmSales')?.addEventListener('click', async ()=>{
 
 // PM: Review AM
 $('btnReviewPmAm')?.addEventListener('click', ()=>{
-  const d=$('pmAmMirrorDetails'); if(d) d.open = true;
+  openReviewPanel('pmAmMirrorDetails');
 });
 
 // PM: Review Full Day
 $('btnReviewPmSales')?.addEventListener('click', ()=>{
   if(!pmFullParsed){ alert('Scan the Full Day receipt first.'); return; }
   renderMirror('pmSalesMirror', RECEIPT_SALES, pmFullParsed);
-  const d=$('pmSalesDetails'); if(d) d.open = true;
+  openReviewPanel('pmSalesDetails');
 });
 
 // PM: Review PM (derived = Full Day − AM)
 $('btnReviewPmComputed')?.addEventListener('click', ()=>{
   if(!pmAmParsed || !pmFullParsed){ alert('Scan AM and Full Day receipts first.'); return; }
   computePMDerived();
-  const d=$('pmSalesDetails'); if(d) d.open = true;
+  openReviewPanel('pmSalesDetails');
 });
 
 /* ====================== TILL / DEPOSIT HELPERS ====================== */
