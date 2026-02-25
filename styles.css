@@ -88,6 +88,7 @@ h2{font-size:1.05rem;margin:2px 0 10px}
 .sub{color:var(--muted);margin-bottom:12px}
 .muted{color:var(--muted)}
 .hint{font-size:.84rem;color:var(--muted)}
+.inline-error{font-size:.9rem;color:var(--miss-tx)}
 .badge{
   font-size:.78rem;
   padding:3px 8px;
