@@ -10,7 +10,7 @@
  */
 
 const SCRIPT_ID = '1GQlBBTuoOKVxS4pxm5mQQVE5hz64CmzAe0T01dYgIDxycfsSPAIdjDtn';
-const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwN035wVgJ3Slszvg0EwkHxT5O9sJYMAQIbJWB9fCuHw10P2YnHy0Ckf_ZTKZ-kWA9o/exec';
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxT-L_bfvFeoC2ps8945uZcWeGt8k3p3sSP0K2ahVaRwUWnyf5nPPFWTXmpRqZVTGJn/exec';
 const SHEET_ID = ''; // Recommended: paste spreadsheet ID here.
 const SHEET_URL = ''; // Optional: paste spreadsheet URL instead of ID.
 const SHEET_NAME = 'Entries from Form';

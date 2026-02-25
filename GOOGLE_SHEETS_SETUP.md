@@ -4,7 +4,7 @@ This repo includes a Google Apps Script endpoint at `google-sheets-sync.gs` that
 
 ## Pre-filled values from your request
 - Script ID: `1GQlBBTuoOKVxS4pxm5mQQVE5hz64CmzAe0T01dYgIDxycfsSPAIdjDtn`
-- Web app URL: `https://script.google.com/macros/s/AKfycbwN035wVgJ3Slszvg0EwkHxT5O9sJYMAQIbJWB9fCuHw10P2YnHy0Ckf_ZTKZ-kWA9o/exec`
+- Web app URL: `https://script.google.com/macros/s/AKfycbxT-L_bfvFeoC2ps8945uZcWeGt8k3p3sSP0K2ahVaRwUWnyf5nPPFWTXmpRqZVTGJn/exec`
 - Worksheet/tab name: `Entries from Form`
 
 ## 1) Add the Apps Script code
