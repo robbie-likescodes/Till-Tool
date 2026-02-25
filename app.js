@@ -176,36 +176,39 @@ function textToLines(text){
 }
 function stripCounts(line){ return String(line || '').replace(/(?:^|\s)[x×]\s*\d+\b/gi, ' '); }
 function bestAmountFromLine(line, {strict=false} = {}){
-  if(!line) return null;
+  if(!line) return { val:null, confidence:'miss' };
   const L = stripCounts(line);
   const matches = [...(L.matchAll(moneyRegex) || [])].map(m=>{
     const raw = m[0], val = normMoney(raw);
     if(val==null) return null;
     return { val, hasDollar:/\$/.test(raw), hasParen:/^\s*\(.*\)\s*$/.test(raw) };
   }).filter(Boolean);
-  if(!matches.length) return null;
+  if(!matches.length) return { val:null, confidence:'miss' };
   const strong = matches.filter(x=>x.hasDollar||x.hasParen);
   const pool = (strict && strong.length) ? strong : matches;
   pool.sort((a,b)=>Math.abs(b.val)-Math.abs(a.val));
-  return pool[0].val;
+  const uncertain = pool.length > 1 || (strict && !strong.length);
+  return { val:pool[0].val, confidence: uncertain ? 'maybe' : 'ok' };
 }
 function amountNear(lines, idx){
-  let v = bestAmountFromLine(lines[idx], {strict:true});
-  if(v!=null) return v;
+  let r = bestAmountFromLine(lines[idx], {strict:true});
+  if(r.val!=null) return r;
   if(idx+1<lines.length){
-    v = bestAmountFromLine(lines[idx+1], {strict:true});
-    if(v!=null) return v;
+    r = bestAmountFromLine(lines[idx+1], {strict:true});
+    if(r.val!=null) return { ...r, confidence:'maybe' };
   }
-  v = bestAmountFromLine(lines[idx], {strict:false});
-  if(v!=null) return v;
+  r = bestAmountFromLine(lines[idx], {strict:false});
+  if(r.val!=null) return { ...r, confidence:'maybe' };
   if(idx+1<lines.length){
-    v = bestAmountFromLine(lines[idx+1], {strict:false});
-    if(v!=null) return v;
+    r = bestAmountFromLine(lines[idx+1], {strict:false});
+    if(r.val!=null) return { ...r, confidence:'maybe' };
   }
   if(idx-1>=0){
-    v = bestAmountFromLine(lines[idx-1], {strict:true}) ?? bestAmountFromLine(lines[idx-1], {strict:false});
+    r = bestAmountFromLine(lines[idx-1], {strict:true});
+    if(r.val==null) r = bestAmountFromLine(lines[idx-1], {strict:false});
+    if(r.val!=null) return { ...r, confidence:'maybe' };
   }
-  return v ?? null;
+  return { val:null, confidence:'miss' };
 }
 
 /* ---------- Section anchors (SALES / PAYMENTS only) ---------- */
@@ -276,10 +279,16 @@ function parseSalesText(text){
 
   function findIn(section, keys, fallbackScope=null){
     const idx = section.findIndex(l => hasAny(l, keys));
-    if(idx>=0) return { val: amountNear(section, idx), status:'ok' };
+    if(idx>=0){
+      const amt = amountNear(section, idx);
+      return { val: amt.val, status: amt.confidence };
+    }
     if(fallbackScope){
       const j = fallbackScope.findIndex(l => hasAny(l, keys));
-      if(j>=0) return { val: amountNear(fallbackScope, j), status:'maybe' };
+      if(j>=0){
+        const amt = amountNear(fallbackScope, j);
+        return { val: amt.val, status: amt.val==null ? 'miss' : 'maybe' };
+      }
     }
     return { val:null, status:'miss' };
   }
@@ -307,7 +316,10 @@ function parseSalesText(text){
   if(out.card==null){
     const src = paySec.length ? paySec : lines.slice(sPays>=0?sPays:0);
     const i = src.findIndex(l => /card\s*[x×]/i.test(l));
-    if(i>=0){ setField('card', amountNear(src, i), 'maybe'); }
+    if(i>=0){
+      const amt = amountNear(src, i);
+      setField('card', amt.val, amt.val==null ? 'miss' : 'maybe');
+    }
   }
   return out;
 }
