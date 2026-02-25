@@ -1,6 +1,38 @@
 /* ====================== CONFIG ====================== */
-const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwN035wVgJ3Slszvg0EwkHxT5O9sJYMAQIbJWB9fCuHw10P2YnHy0Ckf_ZTKZ-kWA9o/exec';
+const ENDPOINT = resolveEndpoint();
 const MATH_EPS = 0.02;
+
+function resolveEndpoint(){
+  const fromWindow = window.TILL_CONFIG && typeof window.TILL_CONFIG.endpoint === 'string'
+    ? window.TILL_CONFIG.endpoint
+    : '';
+  const fromMeta = document.querySelector('meta[name="till-endpoint"]')?.content || '';
+  const candidate = String(fromWindow || fromMeta).trim();
+  if(!candidate) return '';
+
+  try{
+    const url = new URL(candidate);
+    const allowedHosts = new Set([
+      'script.google.com',
+      'script.googleusercontent.com'
+    ]);
+    if(url.protocol !== 'https:' || !allowedHosts.has(url.hostname)){
+      console.warn('Ignoring endpoint because it is not an approved HTTPS Google Apps Script URL.');
+      return '';
+    }
+    return url.toString();
+  }catch(_err){
+    console.warn('Ignoring invalid till endpoint URL configuration.');
+    return '';
+  }
+}
+
+function ensureEndpointConfigured(){
+  if(ENDPOINT) return true;
+  setText('saveHint', 'Submission endpoint is not configured. Contact the administrator.', 'muted');
+  toast('Submission endpoint is not configured.');
+  return false;
+}
 
 /* ====================== DOM HELPERS ====================== */
 const $ = id => document.getElementById(id);
@@ -449,6 +481,7 @@ function chooseMostRecentEntry(entries){
 }
 
 async function loadPmAmFromGoogleDoc(){
+  if(!ensureEndpointConfigured()) return;
   const store = $('store')?.value;
   const date = $('date')?.value;
   const normalizedDate = normalizeDateYMD(date);
@@ -690,6 +723,7 @@ function gateSubmit(){
 
 /* ====================== SUBMIT ====================== */
 $('submitBtn')?.addEventListener('click', async ()=>{
+  if(!ensureEndpointConfigured()) return;
   const salesFormOn = $('formSales')?.checked;
   const tipsFormOn  = $('formTips')?.checked;
 
