@@ -6,7 +6,7 @@
  * 2) Set SHEET_ID (recommended) or SHEET_URL.
  * 3) Run initializeSheet() once.
  * 4) Deploy as Web App (Anyone with link).
- * 5) Put the web app URL in app.js ENDPOINT.
+ * 5) Set the endpoint in index.html via meta tag or window.TILL_CONFIG (no local machine setup).
  */
 
 const SCRIPT_ID = '1GQlBBTuoOKVxS4pxm5mQQVE5hz64CmzAe0T01dYgIDxycfsSPAIdjDtn';
@@ -14,6 +14,14 @@ const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwN035wVgJ3Slszvg0E
 const SHEET_ID = ''; // Recommended: paste spreadsheet ID here.
 const SHEET_URL = ''; // Optional: paste spreadsheet URL instead of ID.
 const SHEET_NAME = 'Entries from Form';
+const MAX_STRING_LENGTH = 120;
+const REQUIRED_FIELDS = ['first_name', 'last_name', 'store_location', 'todays_date', 'time_of_entry'];
+const NUMERIC_FIELDS = [
+  'am_tips','pm_tips','sales_tc_cc_tips','sales_tc_cash_tips','cc_tips_claimed','cash_tips_claimed',
+  'am_total_collected','pm_total_collected','am_card_collected','pm_card_collected','am_cash_sales','pm_cash_sales',
+  'am_till_total','pm_till_total','am_cash_deposit_total','pm_cash_deposit_total','am_shift_total','pm_shift_total',
+  'am_sales_total','pm_sales_total','am_mishandled_cash','pm_mishandled_cash'
+];
 
 const HEADERS = [
   'Submission Date',
@@ -74,6 +82,8 @@ const HEADERS = [
 function doPost(e) {
   try {
     const payload = getPayload_(e);
+    validatePayload_(payload);
+
     const sheet = getSheet_();
     ensureHeaders_(sheet);
 
@@ -89,7 +99,19 @@ function doPost(e) {
   }
 }
 
-function doGet() {
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  const action = String(params.action || '').toLowerCase();
+
+  if (action === 'lookup_am') {
+    try {
+      const result = lookupAmEntry_(params);
+      return jsonResponse_({ ok: true, entry: result });
+    } catch (error) {
+      return jsonResponse_({ ok: false, error: error && error.message ? error.message : String(error) });
+    }
+  }
+
   return jsonResponse_({ ok: true, service: 'Till-Tool Google Sheets endpoint' });
 }
 
@@ -194,6 +216,101 @@ function sum_(...values) {
     .map((v) => num_(v))
     .filter((v) => v !== '')
     .reduce((acc, cur) => acc + cur, 0);
+}
+
+
+function validatePayload_(payload) {
+  const source = String(payload.source || '').trim();
+  if (!source) throw new Error('Missing source.');
+
+  const isTipClaim = source === 'Tip Claim';
+  const required = isTipClaim
+    ? ['first_name', 'last_name', 'store_location', 'todays_date', 'time_of_entry', 'cc_tips_claimed', 'cash_tips_claimed']
+    : REQUIRED_FIELDS.concat(['sales_tc_cc_tips', 'sales_tc_cash_tips']);
+
+  required.forEach((field) => {
+    const value = payload[field];
+    if (value === undefined || value === null || value === '') {
+      throw new Error('Missing required field: ' + field);
+    }
+  });
+
+  Object.keys(payload).forEach((key) => {
+    const value = payload[key];
+    if (typeof value === 'string' && value.length > MAX_STRING_LENGTH) {
+      throw new Error('Field exceeds max length: ' + key);
+    }
+  });
+
+  NUMERIC_FIELDS.forEach((field) => {
+    const value = payload[field];
+    if (value === '' || value === undefined || value === null) return;
+    const n = Number(value);
+    if (!Number.isFinite(n)) throw new Error('Invalid number for field: ' + field);
+  });
+}
+
+function lookupAmEntry_(params) {
+  const normalizedStore = normalizeStore_(params.store);
+  const normalizedDate = normalizeDate_(params.date);
+  if (!normalizedStore || !normalizedDate) {
+    throw new Error('store and date query parameters are required.');
+  }
+
+  const sheet = getSheet_();
+  ensureHeaders_(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return null;
+
+  const rowCount = lastRow - 1;
+  const rows = sheet.getRange(2, 1, rowCount, HEADERS.length).getValues();
+
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    const record = rowToRecord_(row);
+    if (
+      normalizeStore_(record.store_location) === normalizedStore
+      && normalizeDate_(record.todays_date) === normalizedDate
+      && String(record.shift || '').toUpperCase() === 'AM'
+    ) {
+      return record;
+    }
+  }
+
+  return null;
+}
+
+function rowToRecord_(row) {
+  return {
+    store_location: row[5],
+    todays_date: row[4],
+    shift: row[45],
+    total_collected: row[31],
+    tips: row[6],
+    card: row[27],
+    cash: row[43],
+    gift_card: row[33],
+    updated_at: row[0],
+  };
+}
+
+function normalizeStore_(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function normalizeDate_(value) {
+  if (!value) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  const text = String(value).trim();
+  if (!text) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const parsed = new Date(text);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return '';
 }
 
 function buildRow_(p) {
