@@ -5,7 +5,6 @@ This repo includes a Google Apps Script endpoint at `google-sheets-sync.gs` that
 ## Pre-filled values from your request
 - Script ID: `1GQlBBTuoOKVxS4pxm5mQQVE5hz64CmzAe0T01dYgIDxycfsSPAIdjDtn`
 - Web app URL: `https://script.google.com/macros/s/AKfycbwN035wVgJ3Slszvg0EwkHxT5O9sJYMAQIbJWB9fCuHw10P2YnHy0Ckf_ZTKZ-kWA9o/exec`
-- Spreadsheet document name: `Scan Till Tool`
 - Worksheet/tab name: `Entries from Form`
 
 ## 1) Add the Apps Script code
@@ -14,8 +13,10 @@ This repo includes a Google Apps Script endpoint at `google-sheets-sync.gs` that
 
 ## 2) Configure sheet targeting
 You have two options:
-- **Recommended:** set `SHEET_ID` (most reliable).
-- **Fallback:** leave `SHEET_ID` blank and the script will look up the spreadsheet by name (`SHEET_DOC_NAME = "Scan Till Tool"`).
+- **Recommended:** set `SHEET_ID` (most reliable and simplest).
+- **Alternative:** set `SHEET_URL` and the script will parse the spreadsheet ID from the URL.
+
+> Avoid name-based lookups. They require additional Google Drive scopes and can fail with permissions errors in deployed web apps.
 
 ## 3) Initialize headers
 - Run `initializeSheet()` once from the Apps Script editor.

@@ -3,7 +3,7 @@
  *
  * Usage:
  * 1) Create/open your target Google Sheet.
- * 2) Set SHEET_ID (recommended) OR use SHEET_DOC_NAME fallback.
+ * 2) Set SHEET_ID (recommended) or SHEET_URL.
  * 3) Run initializeSheet() once.
  * 4) Deploy as Web App (Anyone with link).
  * 5) Put the web app URL in app.js ENDPOINT.
@@ -12,7 +12,7 @@
 const SCRIPT_ID = '1GQlBBTuoOKVxS4pxm5mQQVE5hz64CmzAe0T01dYgIDxycfsSPAIdjDtn';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwN035wVgJ3Slszvg0EwkHxT5O9sJYMAQIbJWB9fCuHw10P2YnHy0Ckf_ZTKZ-kWA9o/exec';
 const SHEET_ID = ''; // Recommended: paste spreadsheet ID here.
-const SHEET_DOC_NAME = 'Scan Till Tool';
+const SHEET_URL = ''; // Optional: paste spreadsheet URL instead of ID.
 const SHEET_NAME = 'Entries from Form';
 
 const HEADERS = [
@@ -108,14 +108,24 @@ function getSpreadsheet_() {
     return SpreadsheetApp.openById(SHEET_ID);
   }
 
-  const files = DriveApp.getFilesByName(SHEET_DOC_NAME);
-  if (!files.hasNext()) {
-    throw new Error(`Spreadsheet not found by name: "${SHEET_DOC_NAME}". Set SHEET_ID instead.`);
+  if (SHEET_URL) {
+    const parsedId = parseSpreadsheetId_(SHEET_URL);
+    if (!parsedId) {
+      throw new Error('SHEET_URL is set but does not contain a valid spreadsheet ID.');
+    }
+    return SpreadsheetApp.openById(parsedId);
   }
 
-  const file = files.next();
-  const spreadsheetId = file.getId();
-  return SpreadsheetApp.openById(spreadsheetId);
+  throw new Error('Missing sheet configuration. Set SHEET_ID (preferred) or SHEET_URL before deploying.');
+}
+
+function parseSpreadsheetId_(value) {
+  if (!value || typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  const match = trimmed.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if (match && match[1]) return match[1];
+  if (/^[a-zA-Z0-9-_]+$/.test(trimmed)) return trimmed;
+  return '';
 }
 
 function ensureHeaders_(sheet) {
