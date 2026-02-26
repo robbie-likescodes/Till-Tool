@@ -263,6 +263,37 @@ function renderMirror(hostId, spec, values){
   });
 }
 
+const AM_MIRROR_TO_FIELD = {
+  total_collected: 'am_total_collected',
+  tips: 'am_tips',
+  card: 'am_card',
+  cash: 'am_cash',
+  gift_card: 'am_gift_card',
+  gift_cards_sales: 'am_gift_card'
+};
+
+function syncAmMirrorField(key, value){
+  const target = AM_MIRROR_TO_FIELD[key];
+  if(!target) return;
+  if(value == null){
+    const el = $(target);
+    if(el) el.value = '';
+    return;
+  }
+  setNum(target, value);
+}
+
+function seedAmMirrorValues(){
+  return {
+    __status: {},
+    total_collected: getNum('am_total_collected'),
+    tips: getNum('am_tips'),
+    card: getNum('am_card'),
+    cash: getNum('am_cash'),
+    gift_card: getNum('am_gift_card')
+  };
+}
+
 /* ====================== SIMPLE IMAGE RESIZE (OCR-friendly) ====================== */
 async function fileToResizedDataURL(file, maxSide = 2000) {
   const img = new Image();
@@ -648,6 +679,18 @@ async function loadPmAmFromGoogleDoc(){
 }
 
 /* ====================== SCAN HANDLERS ====================== */
+$('amSalesMirror')?.addEventListener('input', (event)=>{
+  const input = event.target;
+  if(!(input instanceof HTMLInputElement)) return;
+  const key = input.dataset.key;
+  if(!key) return;
+  const value = money(input.value);
+  syncAmMirrorField(key, value);
+  recalcAll();
+});
+
+renderMirror('amSalesMirror', RECEIPT_SALES, seedAmMirrorValues());
+
 // AM Sales
 $('btnScanAmSales')?.addEventListener('click', async ()=>{
   const f = $('fileAmSales').files?.[0]; if(!f) return alert('Pick AM Sales photo');
