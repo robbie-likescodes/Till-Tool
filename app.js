@@ -805,6 +805,23 @@ function recalc(prefix){
 }
 function recalcAll(){ recalc('am'); recalc('pm'); gateSubmit(); }
 
+function hasRequiredAMData(){
+  return getNum('am_total_collected') != null && getNum('am_tips') != null;
+}
+
+function hasRequiredPMData(){
+  return getNum('pm_total_collected') != null && getNum('pm_tips') != null;
+}
+
+function hasRequiredFullDayData(){
+  // PM totals come from Full Day scan differencing, manual entry, or doc import.
+  return hasRequiredPMData();
+}
+
+function hasBlockingSalesErrors(){
+  return false;
+}
+
 qsa('input').forEach(el=>{
   if(['number','date','time'].includes(el.type)){
     el.addEventListener('input', recalcAll);
@@ -850,17 +867,22 @@ function gateSubmit(){
 
   if (salesFormOn){
     const isPm = $('shiftPM')?.checked;
-    const scansOk = isPm ? (scanned.pmAm && scanned.pmFull) : scanned.am;
+    const requiredSalesDataOk = isPm ? hasRequiredFullDayData() : hasRequiredAMData();
     const tipReqOk = money($('sales_tc_cc_tips')?.value)!=null && money($('sales_tc_cash_tips')?.value)!=null;
     const signOk = $('sales_signature')?.value.trim() && $('sales_signature_date')?.value;
+    const hasErrors = hasBlockingSalesErrors();
 
-    const ready = !!(okBasicsSales && scansOk && tipReqOk && signOk && salesStep === SALES_WIZARD_STEPS.length - 1);
+    const ready = !!(okBasicsSales && requiredSalesDataOk && tipReqOk && signOk && !hasErrors && salesStep === SALES_WIZARD_STEPS.length - 1);
     $('submitBtn').disabled = !ready;
     setText('saveHint',
       okBasicsSales
         ? (tipReqOk
             ? (signOk
-                ? (scansOk ? (salesStep === SALES_WIZARD_STEPS.length - 1 ? 'Ready to submit ✓' : 'Go to Sign and Submit step') : (isPm ? 'Scan AM & Full Day first' : 'Scan AM Sales first'))
+                ? (hasErrors
+                    ? 'Resolve blocking validation errors'
+                    : (requiredSalesDataOk
+                        ? (salesStep === SALES_WIZARD_STEPS.length - 1 ? 'Ready to submit ✓' : 'Go to Sign and Submit step')
+                        : (isPm ? 'Enter required PM totals (manual, scan, or Doc)' : 'Enter required AM totals (manual, scan, or Doc)')))
                 : 'Complete signature and signed date')
             : 'Enter tip claim (CC + Cash)')
         : 'Fill name/store/date/time',
@@ -920,8 +942,9 @@ $('submitBtn')?.addEventListener('click', async ()=>{
   }
 
   const isPm = $('shiftPM')?.checked;
-  if (isPm && !(scanned.pmAm && scanned.pmFull)) { alert('Please scan AM and Full Day receipts first.'); return; }
-  if (!isPm && !scanned.am) { alert('Please scan the AM Sales receipt first.'); return; }
+  if (isPm && !hasRequiredFullDayData()) { alert('Please enter required PM totals before submitting.'); return; }
+  if (!isPm && !hasRequiredAMData()) { alert('Please enter required AM totals before submitting.'); return; }
+  if (hasBlockingSalesErrors()) { alert('Please resolve blocking validation errors before submitting.'); return; }
   if (money($('sales_tc_cc_tips')?.value)==null || money($('sales_tc_cash_tips')?.value)==null){
     alert('Enter Tip Claim (CC + Cash) before submitting.'); return;
   }
