@@ -127,19 +127,34 @@ function getSheet_() {
 }
 
 function getSpreadsheet_() {
-  if (SHEET_ID) {
-    return SpreadsheetApp.openById(SHEET_ID);
+  const config = getSheetConfig_();
+
+  if (config.sheetId) {
+    return SpreadsheetApp.openById(config.sheetId);
   }
 
-  if (SHEET_URL) {
-    const parsedId = parseSpreadsheetId_(SHEET_URL);
+  if (config.sheetUrl) {
+    const parsedId = parseSpreadsheetId_(config.sheetUrl);
     if (!parsedId) {
       throw new Error('SHEET_URL is set but does not contain a valid spreadsheet ID.');
     }
     return SpreadsheetApp.openById(parsedId);
   }
 
-  throw new Error('Missing sheet configuration. Set SHEET_ID (preferred) or SHEET_URL before deploying.');
+  throw new Error(
+    'Missing sheet configuration. Set SHEET_ID (preferred) or SHEET_URL in this script, or set Script Properties SHEET_ID/SHEET_URL, then redeploy the web app.'
+  );
+}
+
+function getSheetConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  const configuredId = cleanValue_(props.getProperty('SHEET_ID'));
+  const configuredUrl = cleanValue_(props.getProperty('SHEET_URL'));
+
+  return {
+    sheetId: configuredId || cleanValue_(SHEET_ID),
+    sheetUrl: configuredUrl || cleanValue_(SHEET_URL),
+  };
 }
 
 function parseSpreadsheetId_(value) {
