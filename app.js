@@ -737,25 +737,6 @@ $('btnScanPmSales')?.addEventListener('click', async ()=>{
   computePMDerived();
 });
 
-// PM: Review AM
-$('btnReviewPmAm')?.addEventListener('click', ()=>{
-  openReviewPanel('pmAmMirrorDetails');
-});
-
-// PM: Review Full Day
-$('btnReviewPmSales')?.addEventListener('click', ()=>{
-  if(!pmFullParsed){ alert('Scan the Full Day receipt first.'); return; }
-  renderMirror('pmSalesMirror', RECEIPT_SALES, pmFullParsed);
-  openReviewPanel('pmSalesDetails');
-});
-
-// PM: Review PM (derived = Full Day − AM)
-$('btnReviewPmComputed')?.addEventListener('click', ()=>{
-  if(!pmAmParsed || !pmFullParsed){ alert('Scan AM and Full Day receipts first.'); return; }
-  computePMDerived();
-  openReviewPanel('pmSalesDetails');
-});
-
 /* ====================== TILL / DEPOSIT HELPERS ====================== */
 function sumDenoms(prefix, kind){
   const base = `${prefix}_${kind}_`;
