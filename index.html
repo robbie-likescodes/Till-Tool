@@ -188,7 +188,6 @@
                 <input id="filePmAmSales" type="file" accept="image/*" capture="environment" />
                 <button id="btnScanPmAmSales" class="btn btn-grad tiny" type="button">Scan AM</button>
                 <button id="btnLoadPmAmDoc" class="btn btn-ghost tiny" type="button">Upload Previous AM</button>
-                <button id="btnReviewPmAm" class="btn btn-ghost tiny" type="button">Review AM</button>
                 <span id="statusPmAm" class="pill">-</span>
               </div>
               <div id="pmAmDocError" class="inline-error mt-8" role="alert" hidden></div>
@@ -198,7 +197,6 @@
               <div class="row">
                 <input id="filePmSales" type="file" accept="image/*" capture="environment" />
                 <button id="btnScanPmSales" class="btn btn-grad tiny" type="button">Scan Full Day</button>
-                <button id="btnReviewPmSales" class="btn btn-ghost tiny" type="button">Review Full Day</button>
                 <span id="statusPmSales" class="pill">-</span>
               </div>
             </div>
@@ -215,16 +213,12 @@
           <input id="pm_cash" type="hidden" />
           <input id="pm_gift_card" type="hidden" />
 
-          <div class="row mt-12">
-            <button id="btnReviewPmComputed" class="btn btn-ghost tiny" type="button">Review PM</button>
-          </div>
-
           <details id="pmAmMirrorDetails" class="mt-12">
-            <summary class="pill">Review</summary>
+            <summary class="pill">Review scanned AM values</summary>
             <div id="pmAmSalesMirror" class="grid grid-2-md mt-12"></div>
           </details>
           <details id="pmSalesDetails" class="mt-12">
-            <summary class="pill">Review</summary>
+            <summary class="pill">Review full-day and PM values</summary>
             <div id="pmSalesMirror" class="grid grid-2-md mt-12"></div>
           </details>
         </div>
