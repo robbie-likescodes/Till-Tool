@@ -16,10 +16,10 @@
 <body>
   <div class="wrap">
     <h1>Daily Close</h1>
-    <div class="sub">Pick a form → complete → submit.</div>
+    <div id="formPickerSubtitle" class="sub">Pick a form → complete → submit.</div>
 
     <!-- WHICH FORM -->
-    <div class="card">
+    <div id="formPickerCard" class="card">
       <label>Which form?</label>
       <div class="row" role="radiogroup" aria-label="Form Type">
         <label class="chip"><input id="formSales" type="radio" name="formType" checked /> Shift Sales Form</label>
@@ -29,10 +29,10 @@
 
     <!-- ===== SHIFT SALES FORM ===== -->
     <section id="salesForm" aria-label="Shift Sales Form">
-      <div class="sub">Pick shift → scan receipts → (optional) review → count till → add deposit → submit.</div>
+      <div id="salesWorkflowSubtitle" class="sub">Pick shift → scan receipts → (optional) review → count till → add deposit → submit.</div>
 
       <!-- HEADER / IDENTITY -->
-      <div class="card grid grid-2-md" data-sales-step="0">
+      <div id="salesShiftSetupCard" class="card grid grid-2-md" data-sales-step="0">
         <div>
           <label for="firstName">First name</label>
           <div class="field"><input id="firstName" type="text" autocomplete="given-name" placeholder="e.g., Ava" /></div>

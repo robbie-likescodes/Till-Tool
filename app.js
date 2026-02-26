@@ -112,6 +112,16 @@ function initSalesNavObserver(){
   observer.observe(sentinel);
 }
 
+
+function updateSalesTopSectionVisibility(salesOn){
+  const hideTopSection = !!(salesOn && salesStep > 0);
+  ['formPickerSubtitle', 'formPickerCard', 'salesWorkflowSubtitle', 'salesShiftSetupCard'].forEach(id=>{
+    const el = $(id);
+    if(!el) return;
+    el.hidden = hideTopSection;
+  });
+}
+
 function renderSalesStepJumps(salesOn){
   const host = $('salesStepJumps');
   if(!host) return;
@@ -150,6 +160,7 @@ function updateSalesWizard(){
   }
   setText('salesStepLabel', `Step ${salesStep + 1} of ${SALES_WIZARD_STEPS.length}: ${SALES_WIZARD_STEPS[salesStep]}`, 'hint');
   renderSalesStepJumps(!!salesOn);
+  updateSalesTopSectionVisibility(!!salesOn);
   updateSalesNavVisibility();
 
   const sticky = document.querySelector('.sticky');
@@ -177,6 +188,7 @@ function applyFormChoice(){
   show('salesForm', !!salesOn);
   show('tipForm', !salesOn);
   if(!salesOn) salesStep = 0;
+  updateSalesTopSectionVisibility(!!salesOn);
   updateSalesWizard();
   gateSubmit();
 }
