@@ -778,9 +778,6 @@ function recalc(prefix){
   const shift = fix2(card + depCash);
   setNum(`${prefix}_shift_total`, shift);
 
-  if (Math.abs(mish||0) > 10) {
-    toast('Please double-check your numbers. If you don’t see any errors, notify the office ASAP.');
-  }
 }
 function recalcAll(){ recalc('am'); recalc('pm'); gateSubmit(); }
 
