@@ -12,9 +12,17 @@ This repo includes a Google Apps Script endpoint at `google-sheets-sync.gs` that
 - Paste in the contents of `google-sheets-sync.gs`.
 
 ## 2) Configure sheet targeting
-You have two options:
+You have two options (both now work from either code constants or Script Properties):
 - **Recommended:** set `SHEET_ID` (most reliable and simplest).
 - **Alternative:** set `SHEET_URL` and the script will parse the spreadsheet ID from the URL.
+
+### Option A: set constants in code
+- In `google-sheets-sync.gs`, set `SHEET_ID` or `SHEET_URL` directly.
+
+### Option B: set Script Properties (no code changes needed)
+- In Apps Script, open **Project Settings** → **Script Properties**.
+- Add `SHEET_ID` (preferred) or `SHEET_URL`.
+- Save and redeploy the Web App version.
 
 > Avoid name-based lookups. They require additional Google Drive scopes and can fail with permissions errors in deployed web apps.
 
